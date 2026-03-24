@@ -1,0 +1,42 @@
+spring:
+  application:
+    name: used-cars-backend
+  datasource:
+    # JDBC KHÔNG dùng kiểu SSMS "HOST\INSTANCE". Dùng "host:port" để bỏ qua SQL Browser (UDP 1434).
+    # Nếu để instanceName mà không ghi port → driver hỏi Browser → timeout nếu Browser tắt / firewall chặn 1434.
+    # Named instance nhưng TCP cố định 1433: vẫn dùng jdbc:sqlserver://localhost:1433;...
+    url: ${DB_URL:jdbc:sqlserver://localhost:1433;databaseName=usedCars;encrypt=false;trustServerCertificate=true}
+    username: ${DB_USER:sa}
+    password: ${DB_PASSWORD:123456}
+    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+      naming:
+        # Giu dung ten bang/cot nhu @Table (Users, Permissions, ...) — tranh bi doi thanh chu thuong [permissions] khi validate
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+    open-in-view: false
+    properties:
+      # Hibernate 6 + Instant: canh bao datetimeoffset vs DATETIME2 trong DB — dung TIMESTAMP (datetime2)
+      hibernate.type.preferred_instant_jdbc_type: TIMESTAMP
+      hibernate:
+        dialect: org.hibernate.dialect.SQLServerDialect
+        format_sql: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    # DB da co bang (tao tay) nhung chua co flyway_schema_history -> bat de Flyway tao baseline, khong bat buoc chay lai V1__...
+    baseline-on-migrate: true
+  autoconfigure:
+    exclude:
+      # Bật lại khi dùng Redis (booking lock, cache, ...)
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+
+server:
+  port: ${SERVER_PORT:8080}
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:defaultDevSecretKeyMustBe256BitsLongForHS256AlgorithmSecurityDevOnly!!}
+    expiration-ms: ${JWT_EXPIRATION_MS:86400000}

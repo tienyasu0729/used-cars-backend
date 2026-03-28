@@ -25,7 +25,6 @@ public class SecurityConfig {
 
 	private final JwtAuthenticationFilter jwtAuthenticationFilter;
 	private final RestAuthenticationEntryPoint restAuthenticationEntryPoint;
-	private final CorsConfigurationSource corsConfigurationSource;
 
 	@Bean
 	PasswordEncoder passwordEncoder() {
@@ -47,7 +46,7 @@ public class SecurityConfig {
 	@Bean
 	SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
 		http.csrf(AbstractHttpConfigurer::disable)
-				.cors(c -> c.configurationSource(corsConfigurationSource))
+				.cors(c -> c.configurationSource(corsConfigurationSource()))
 				.sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				.exceptionHandling(e -> e.authenticationEntryPoint(restAuthenticationEntryPoint))
 				.authorizeHttpRequests(auth -> auth

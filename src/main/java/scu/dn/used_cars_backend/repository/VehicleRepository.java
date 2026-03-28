@@ -39,4 +39,7 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 	@Query("select v from Vehicle v where v.id = :id and v.deleted = false")
 	Optional<Vehicle> findManagedDetailById(@Param("id") Long id);
 
+	@Query("select v from Vehicle v where v.id = :id and v.deleted = false and v.status = 'Available'")
+	Optional<Vehicle> findAvailableForBooking(@Param("id") Long id);
+
 }

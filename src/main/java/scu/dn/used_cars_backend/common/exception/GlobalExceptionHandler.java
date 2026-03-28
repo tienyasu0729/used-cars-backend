@@ -142,6 +142,13 @@ public class GlobalExceptionHandler {
 			case LISTING_ID_CONFLICT -> "Mã tin trùng hoặc xung đột dữ liệu.";
 			case VEHICLE_ALREADY_SAVED -> "Xe đã có trong danh sách đã lưu.";
 			case VEHICLE_NOT_SAVED -> "Xe chưa được lưu.";
+			case BOOKING_NOT_FOUND -> "Không tìm thấy lịch hẹn.";
+			case SLOT_NOT_FOUND -> "Không tìm thấy khung giờ.";
+			case SLOT_FULLY_BOOKED -> "Khung giờ đã đầy.";
+			case VEHICLE_NOT_AVAILABLE -> "Xe không khả dụng để đặt lịch.";
+			case BOOKING_CANNOT_CANCEL -> "Lịch hẹn không thể hủy.";
+			case INVALID_STATUS_TRANSITION -> "Chuyển trạng thái không hợp lệ.";
+			case BOOKING_ACCESS_DENIED -> "Không có quyền truy cập lịch hẹn này.";
 		};
 	}
 }

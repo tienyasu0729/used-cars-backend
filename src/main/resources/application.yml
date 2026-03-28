@@ -5,7 +5,7 @@ spring:
     # JDBC KHÔNG dùng kiểu SSMS "HOST\INSTANCE". Dùng "host:port" để bỏ qua SQL Browser (UDP 1434).
     # Nếu để instanceName mà không ghi port → driver hỏi Browser → timeout nếu Browser tắt / firewall chặn 1434.
     # Named instance nhưng TCP cố định 1433: vẫn dùng jdbc:sqlserver://localhost:1433;...
-    url: ${DB_URL:jdbc:sqlserver://localhost:1433;databaseName=usedCars;encrypt=false;trustServerCertificate=true}
+    url: ${DB_URL:jdbc:sqlserver://localhost:1433;databaseName=usedCars;encrypt=false;trustServerCertificate=true;sendTimeAsDatetime=false}
     username: ${DB_USER:sa}
     password: ${DB_PASSWORD:123456}
     driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver

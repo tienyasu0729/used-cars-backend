@@ -9,6 +9,7 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -80,6 +81,20 @@ public class GlobalExceptionHandler {
 		return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
 	}
 
+	@ExceptionHandler(DataIntegrityViolationException.class)
+	public ResponseEntity<ApiErrorResponse> handleDataIntegrity(DataIntegrityViolationException ex,
+			HttpServletRequest request) {
+		log.warn("Data integrity violation: {}", ex.getMostSpecificCause().getMessage());
+		ApiErrorResponse body = ApiErrorResponse.builder()
+				.timestamp(Instant.now())
+				.status(ErrorCode.LISTING_ID_CONFLICT.getHttpStatus().value())
+				.errorCode(ErrorCode.LISTING_ID_CONFLICT.getCode())
+				.message("Dữ liệu trùng khóa hoặc vi phạm ràng buộc.")
+				.path(request.getRequestURI())
+				.build();
+		return ResponseEntity.status(ErrorCode.LISTING_ID_CONFLICT.getHttpStatus()).body(body);
+	}
+
 	@ExceptionHandler(AccessDeniedException.class)
 	public ResponseEntity<ApiErrorResponse> handleForbidden(AccessDeniedException ex, HttpServletRequest request) {
 		ApiErrorResponse body = ApiErrorResponse.builder()
@@ -118,6 +133,15 @@ public class GlobalExceptionHandler {
 			case ACCOUNT_SUSPENDED -> "Tài khoản bị khóa.";
 			case VALIDATION_FAILED -> "Dữ liệu không hợp lệ.";
 			case INTERNAL_SERVER_ERROR -> "Lỗi hệ thống.";
+			case VEHICLE_NOT_FOUND -> "Không tìm thấy xe.";
+			case BRAND_NOT_FOUND -> "Không tìm thấy hãng (category).";
+			case MODEL_NOT_FOUND -> "Không tìm thấy dòng xe (subcategory).";
+			case BRANCH_NOT_FOUND -> "Không tìm thấy chi nhánh.";
+			case INVALID_PRICE -> "Giá không hợp lệ.";
+			case INVALID_YEAR -> "Năm sản xuất không hợp lệ.";
+			case LISTING_ID_CONFLICT -> "Mã tin trùng hoặc xung đột dữ liệu.";
+			case VEHICLE_ALREADY_SAVED -> "Xe đã có trong danh sách đã lưu.";
+			case VEHICLE_NOT_SAVED -> "Xe chưa được lưu.";
 		};
 	}
 }

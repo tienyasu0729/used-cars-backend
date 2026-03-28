@@ -2,7 +2,7 @@ spring:
   flyway:
     enabled: false
   datasource:
-    url: jdbc:h2:mem:usedcars_test;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    url: jdbc:h2:mem:usedcars_test;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;NON_KEYWORDS=YEAR
     driver-class-name: org.h2.Driver
     username: sa
     password:

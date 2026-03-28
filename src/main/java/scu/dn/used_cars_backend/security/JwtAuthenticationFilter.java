@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 
+// Lọc JWT; bỏ qua filter cho login/register và GET catalog/vehicles (đọc công khai).
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -33,13 +34,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 			new AntPathRequestMatcher("/api/v1/auth/login", "POST"),
 			new AntPathRequestMatcher("/api/v1/auth/register", "POST"));
 
+	/** Guest: xem catalog + danh sách/chi tiết xe công khai (không JWT). */
+	private static final RequestMatcher PUBLIC_READ_CATALOG_AND_VEHICLES = new OrRequestMatcher(
+			new AntPathRequestMatcher("/api/v1/catalog/**", "GET"),
+			new AntPathRequestMatcher("/api/v1/vehicles", "GET"),
+			new AntPathRequestMatcher("/api/v1/vehicles/*", "GET"));
+
 	private final JwtService jwtService;
 	private final UserRepository userRepository;
 	private final HttpErrorResponseWriter errorWriter;
 
 	@Override
 	protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
-		return PUBLIC_AUTH.matches(request);
+		return PUBLIC_AUTH.matches(request) || PUBLIC_READ_CATALOG_AND_VEHICLES.matches(request);
 	}
 
 	@Override

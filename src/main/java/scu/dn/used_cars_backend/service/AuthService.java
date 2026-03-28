@@ -25,6 +25,7 @@ import java.util.Comparator;
 @RequiredArgsConstructor
 public class AuthService {
 
+	/** Phải trùng {@code Roles.name} trong seed — xem {@code docs/db_design/init_schema.sql}. */
 	private static final String CUSTOMER_ROLE = "Customer";
 
 	private final UserRepository userRepository;

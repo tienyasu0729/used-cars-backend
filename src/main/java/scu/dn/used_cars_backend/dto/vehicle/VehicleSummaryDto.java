@@ -18,6 +18,9 @@ public class VehicleSummaryDto {
 	private String title;
 	private BigDecimal price;
 	private Integer year;
+	private Integer mileage;
+	private String fuel;
+	private String transmission;
 	private Integer categoryId;
 	private String categoryName;
 	private Integer subcategoryId;

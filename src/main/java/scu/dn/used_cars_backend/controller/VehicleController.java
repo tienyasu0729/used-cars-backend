@@ -35,9 +35,10 @@ public class VehicleController {
 			@RequestParam(defaultValue = "20") int size,
 			@RequestParam(required = false) Integer brand,
 			@RequestParam(required = false) BigDecimal minPrice,
-			@RequestParam(required = false) BigDecimal maxPrice) {
+			@RequestParam(required = false) BigDecimal maxPrice,
+			@RequestParam(required = false) String sort) {
 		Integer categoryId = brand;
-		VehicleListResponse data = vehicleService.listPublic(categoryId, minPrice, maxPrice, page, size);
+		VehicleListResponse data = vehicleService.listPublic(categoryId, minPrice, maxPrice, page, size, sort);
 		return ResponseEntity.ok(ApiResponse.success(data));
 	}
 

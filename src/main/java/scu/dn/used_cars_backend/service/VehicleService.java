@@ -8,6 +8,7 @@ import org.springframework.cache.CacheManager;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.Sort.Order;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,6 +52,9 @@ public class VehicleService {
 
 	private static final Set<String> VEHICLE_STATUSES = Set.of("Available", "Reserved", "Sold", "Hidden", "InTransfer");
 	private static final ZoneId VN = ZoneId.of("Asia/Ho_Chi_Minh");
+	/** Tiền tố khóa cache — đổi khi DTO list/detail thay đổi để tránh trả bản cũ thiếu field. */
+	private static final String VEHICLE_LIST_CACHE_PREFIX = "v3:";
+	private static final String VEHICLE_DETAIL_CACHE_PREFIX = "v3:";
 
 	private final VehicleRepository vehicleRepository;
 	private final CategoryRepository categoryRepository;
@@ -73,9 +77,11 @@ public class VehicleService {
 	}
 
 	@Transactional(readOnly = true)
-	public VehicleListResponse listPublic(Integer categoryId, BigDecimal minPrice, BigDecimal maxPrice, int page, int size) {
-		// B1: tạo khóa cache giống logic cũ (category|min|max|page|size)
-		String key = buildListCacheKey(categoryId, minPrice, maxPrice, page, size);
+	public VehicleListResponse listPublic(Integer categoryId, BigDecimal minPrice, BigDecimal maxPrice, int page, int size,
+			String sort) {
+		String sortKey = normalizeListSortKey(sort);
+		// B1: khóa cache gồm cả sort (idDesc | postingDateDesc)
+		String key = buildListCacheKey(categoryId, minPrice, maxPrice, page, size, sortKey);
 		Cache cache = cacheManager.getCache("vehicleList");
 		if (cache != null) {
 			Cache.ValueWrapper w = cache.get(key);
@@ -84,7 +90,7 @@ public class VehicleService {
 			}
 		}
 		// B2: không có cache → query DB + map DTO
-		VehicleListResponse body = loadListFromDatabase(categoryId, minPrice, maxPrice, page, size);
+		VehicleListResponse body = loadListFromDatabase(categoryId, minPrice, maxPrice, page, size, sortKey);
 		if (cache != null) {
 			cache.put(key, body);
 		}
@@ -94,7 +100,7 @@ public class VehicleService {
 	@Transactional(readOnly = true)
 	public VehicleDetailDto getPublicDetail(long id) {
 		// B1: thử lấy từ cache chi tiết
-		String key = String.valueOf(id);
+		String key = detailCacheKey(id);
 		Cache cache = cacheManager.getCache("vehicleDetail");
 		if (cache != null) {
 			Cache.ValueWrapper w = cache.get(key);
@@ -207,21 +213,44 @@ public class VehicleService {
 		}
 		Cache detail = cacheManager.getCache("vehicleDetail");
 		if (detail != null) {
-			detail.evict(vehicleId);
+			detail.evict(detailCacheKey(vehicleId));
 		}
 	}
 
+	private static String detailCacheKey(long id) {
+		return VEHICLE_DETAIL_CACHE_PREFIX + id;
+	}
+
+	private static String normalizeListSortKey(String sort) {
+		if (sort == null || sort.isBlank()) {
+			return "idDesc";
+		}
+		String s = sort.trim();
+		if ("postingDateDesc".equalsIgnoreCase(s) || "posting_date_desc".equalsIgnoreCase(s)) {
+			return "postingDateDesc";
+		}
+		return "idDesc";
+	}
+
+	private static Sort listSortForPublicList(String sortKey) {
+		if ("postingDateDesc".equals(sortKey)) {
+			return Sort.by(Order.desc("postingDate").with(Sort.NullHandling.NULLS_LAST), Order.desc("id"));
+		}
+		return Sort.by(Order.desc("id"));
+	}
+
 	private static String buildListCacheKey(Integer categoryId, BigDecimal minPrice, BigDecimal maxPrice, int page,
-			int size) {
+			int size, String sortKey) {
 		String c = categoryId != null ? String.valueOf(categoryId) : "all";
 		String min = minPrice != null ? minPrice.toString() : "x";
 		String max = maxPrice != null ? maxPrice.toString() : "x";
-		return c + "|" + min + "|" + max + "|" + page + "|" + size;
+		return VEHICLE_LIST_CACHE_PREFIX + c + "|" + min + "|" + max + "|" + page + "|" + size + "|" + sortKey;
 	}
 
 	private VehicleListResponse loadListFromDatabase(Integer categoryId, BigDecimal minPrice, BigDecimal maxPrice,
-			int page, int size) {
-		PageRequest pr = PageRequest.of(Math.max(0, page), Math.min(100, Math.max(1, size)), Sort.by("id").descending());
+			int page, int size, String sortKey) {
+		Sort sort = listSortForPublicList(sortKey);
+		PageRequest pr = PageRequest.of(Math.max(0, page), Math.min(100, Math.max(1, size)), sort);
 		Page<Vehicle> p = vehicleRepository.findPublicPage(categoryId, minPrice, maxPrice, pr);
 		List<VehicleSummaryDto> items = new ArrayList<>();
 		for (Vehicle v : p.getContent()) {
@@ -385,6 +414,9 @@ public class VehicleService {
 		dto.setTitle(v.getTitle());
 		dto.setPrice(v.getPrice());
 		dto.setYear(v.getYear());
+		dto.setMileage(v.getMileage());
+		dto.setFuel(v.getFuel());
+		dto.setTransmission(v.getTransmission());
 		dto.setCategoryId(v.getCategory().getId());
 		dto.setCategoryName(v.getCategory().getName());
 		dto.setSubcategoryId(v.getSubcategory().getId());

@@ -31,6 +31,14 @@ class VehiclePublicApiIntegrationTest {
 	}
 
 	@Test
+	void listVehiclesSortByPostingDate() throws Exception {
+		mockMvc.perform(get("/api/v1/vehicles").param("sort", "postingDateDesc").param("size", "9"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.success").value(true))
+				.andExpect(jsonPath("$.data.items").isArray());
+	}
+
+	@Test
 	void listCategoriesWithoutToken() throws Exception {
 		mockMvc.perform(get("/api/v1/catalog/categories"))
 				.andExpect(status().isOk())

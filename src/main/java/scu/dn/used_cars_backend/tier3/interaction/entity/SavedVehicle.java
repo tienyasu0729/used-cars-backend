@@ -1,4 +1,4 @@
-package scu.dn.used_cars_backend.entity;
+package scu.dn.used_cars_backend.tier3.interaction.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.EmbeddedId;
@@ -11,6 +11,8 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
+import scu.dn.used_cars_backend.entity.User;
+import scu.dn.used_cars_backend.entity.Vehicle;
 
 import java.time.Instant;
 
@@ -43,5 +45,4 @@ public class SavedVehicle {
 			savedAt = Instant.now();
 		}
 	}
-
 }

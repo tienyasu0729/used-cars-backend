@@ -25,15 +25,12 @@ import scu.dn.used_cars_backend.dto.vehicle.VehicleSummaryDto;
 import scu.dn.used_cars_backend.dto.vehicle.VehicleUpdateRequest;
 import scu.dn.used_cars_backend.entity.Branch;
 import scu.dn.used_cars_backend.entity.Category;
-import scu.dn.used_cars_backend.entity.SavedVehicle;
-import scu.dn.used_cars_backend.entity.SavedVehicleId;
 import scu.dn.used_cars_backend.entity.Subcategory;
 import scu.dn.used_cars_backend.entity.User;
 import scu.dn.used_cars_backend.entity.Vehicle;
 import scu.dn.used_cars_backend.entity.VehicleImage;
 import scu.dn.used_cars_backend.repository.BranchRepository;
 import scu.dn.used_cars_backend.repository.CategoryRepository;
-import scu.dn.used_cars_backend.repository.SavedVehicleRepository;
 import scu.dn.used_cars_backend.repository.SubcategoryRepository;
 import scu.dn.used_cars_backend.repository.UserRepository;
 import scu.dn.used_cars_backend.repository.VehicleRepository;
@@ -61,18 +58,16 @@ public class VehicleService {
 	private final SubcategoryRepository subcategoryRepository;
 	private final BranchRepository branchRepository;
 	private final UserRepository userRepository;
-	private final SavedVehicleRepository savedVehicleRepository;
 	private final CacheManager cacheManager;
 
 	public VehicleService(VehicleRepository vehicleRepository, CategoryRepository categoryRepository,
 			SubcategoryRepository subcategoryRepository, BranchRepository branchRepository, UserRepository userRepository,
-			SavedVehicleRepository savedVehicleRepository, CacheManager cacheManager) {
+			CacheManager cacheManager) {
 		this.vehicleRepository = vehicleRepository;
 		this.categoryRepository = categoryRepository;
 		this.subcategoryRepository = subcategoryRepository;
 		this.branchRepository = branchRepository;
 		this.userRepository = userRepository;
-		this.savedVehicleRepository = savedVehicleRepository;
 		this.cacheManager = cacheManager;
 	}
 
@@ -114,31 +109,6 @@ public class VehicleService {
 			cache.put(key, dto);
 		}
 		return dto;
-	}
-
-	@Transactional
-	public void saveForUser(long vehicleId, long userId) {
-		User user = userRepository.findByIdAndDeletedFalse(userId)
-				.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "Không tìm thấy người dùng."));
-		Vehicle vehicle = vehicleRepository.findPublicDetailById(vehicleId)
-				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
-		if (savedVehicleRepository.existsByUser_IdAndVehicle_Id(userId, vehicleId)) {
-			throw new BusinessException(ErrorCode.VEHICLE_ALREADY_SAVED, "Xe đã được lưu.");
-		}
-		SavedVehicle sv = new SavedVehicle();
-		sv.setUser(user);
-		sv.setVehicle(vehicle);
-		sv.setId(new SavedVehicleId(user.getId(), vehicle.getId()));
-		savedVehicleRepository.save(sv);
-	}
-
-	@Transactional
-	public void removeSavedForUser(long vehicleId, long userId) {
-		SavedVehicleId id = new SavedVehicleId(userId, vehicleId);
-		if (!savedVehicleRepository.existsById(id)) {
-			throw new BusinessException(ErrorCode.VEHICLE_NOT_SAVED, "Xe chưa có trong danh sách đã lưu.");
-		}
-		savedVehicleRepository.deleteById(id);
 	}
 
 	@Transactional

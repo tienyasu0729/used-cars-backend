@@ -41,6 +41,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 			new AntPathRequestMatcher("/api/v1/branches/*", "GET"),
 			new AntPathRequestMatcher("/api/v1/vehicles", "GET"),
 			new AntPathRequestMatcher("/api/v1/vehicles/*", "GET"),
+			new AntPathRequestMatcher("/api/v1/vehicles/*/view", "POST"),
+			new AntPathRequestMatcher("/api/v1/vehicles/recently-viewed", "GET"),
 			new AntPathRequestMatcher("/api/v1/bookings/available-slots", "GET"));
 
 	private final JwtService jwtService;

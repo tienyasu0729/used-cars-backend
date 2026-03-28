@@ -1,4 +1,4 @@
-package scu.dn.used_cars_backend.entity;
+package scu.dn.used_cars_backend.tier3.interaction.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
@@ -24,5 +24,4 @@ public class SavedVehicleId implements Serializable {
 
 	@Column(name = "vehicle_id", nullable = false)
 	private Long vehicleId;
-
 }

@@ -11,10 +11,17 @@ import org.springframework.data.repository.query.Param;
 
 import scu.dn.used_cars_backend.entity.Vehicle;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
 public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
+
+	boolean existsByIdAndDeletedFalse(Long id);
+
+	@EntityGraph(attributePaths = { "images" })
+	@Query("select v from Vehicle v where v.id in :ids")
+	List<Vehicle> findAllByIdInWithImages(@Param("ids") Collection<Long> ids);
 
 	@Query("select v.listingId from Vehicle v where v.listingId like concat(:prefix, '%')")
 	List<String> findListingIdsByPrefix(@Param("prefix") String prefix);

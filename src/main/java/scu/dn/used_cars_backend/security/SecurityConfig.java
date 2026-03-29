@@ -19,6 +19,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import java.util.List;
 
 // Cấu hình bảo mật: JWT không session; cho phép GET catalog + xe công khai (không token).
+// Phase 1 — Cần JWT: PUT/POST /api/v1/users/me*, GET /api/v1/users/me/stats, POST /api/v1/auth/change-password, /logout.
 @Configuration
 @EnableWebSecurity
 @RequiredArgsConstructor
@@ -52,6 +53,7 @@ public class SecurityConfig {
 				.exceptionHandling(e -> e.authenticationEntryPoint(restAuthenticationEntryPoint))
 				.authorizeHttpRequests(auth -> auth
 						.requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/register").permitAll()
+						.requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
 						.requestMatchers(HttpMethod.GET, "/api/v1/catalog/**").permitAll()
 						.requestMatchers(HttpMethod.GET, "/api/v1/branches", "/api/v1/branches/*").permitAll()
 						.requestMatchers(HttpMethod.GET, "/api/v1/vehicles", "/api/v1/vehicles/*").permitAll()

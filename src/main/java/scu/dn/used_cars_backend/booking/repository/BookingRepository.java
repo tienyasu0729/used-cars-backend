@@ -69,4 +69,11 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 			order by b.timeSlot asc, b.id asc
 			""")
 	java.util.List<Booking> findScheduleForBranchAndDate(@Param("branchId") int branchId, @Param("date") LocalDate date);
+
+	@Query("""
+			select count(b) from Booking b
+			where b.customerId = :userId
+			and b.status in ('Pending', 'Confirmed')
+			""")
+	long countUpcomingByCustomerId(@Param("userId") long userId);
 }

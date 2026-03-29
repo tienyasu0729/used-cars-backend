@@ -17,6 +17,7 @@ import scu.dn.used_cars_backend.entity.User;
 import scu.dn.used_cars_backend.entity.UserRole;
 import scu.dn.used_cars_backend.repository.RoleRepository;
 import scu.dn.used_cars_backend.repository.UserRepository;
+import scu.dn.used_cars_backend.repository.StaffAssignmentRepository;
 import scu.dn.used_cars_backend.security.JwtService;
 
 import java.util.Comparator;
@@ -32,6 +33,7 @@ public class AuthService {
 	private final RoleRepository roleRepository;
 	private final PasswordEncoder passwordEncoder;
 	private final JwtService jwtService;
+	private final StaffAssignmentRepository staffAssignmentRepository;
 
 	@Transactional(readOnly = true)
 	public LoginResponse login(LoginRequest request) {
@@ -50,8 +52,15 @@ public class AuthService {
 				.name(user.getName())
 				.email(user.getEmail())
 				.phone(user.getPhone())
+				.address(user.getAddress())
 				.role(roleName)
 				.build();
+
+		if (roleName.equals("BranchManager") || roleName.equals("SalesStaff")) {
+			staffAssignmentRepository.findFirstByUserIdAndActiveTrueOrderByIdDesc(user.getId())
+					.ifPresent(assignment -> profile.setBranchId(assignment.getBranchId()));
+		}
+
 		return new LoginResponse(profile, token);
 	}
 
@@ -84,5 +93,26 @@ public class AuthService {
 				.min(Comparator.comparingInt(ur -> ur.getRole().getId()))
 				.map(ur -> ur.getRole().getName())
 				.orElse(CUSTOMER_ROLE);
+	}
+
+	@Transactional
+	public void changePassword(long userId, String currentPassword, String newPassword) {
+		// B1: Lấy user từ DB
+		User user = userRepository.findByIdAndDeletedFalse(userId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "Không tìm thấy người dùng."));
+		// B2: Kiểm tra mật khẩu hiện tại
+		if (user.getPasswordHash() == null || !passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
+			throw new BusinessException(ErrorCode.INVALID_CURRENT_PASSWORD, "Mật khẩu hiện tại không đúng.");
+		}
+		// B3: Độ dài + khác mật cũ
+		if (newPassword.length() < 6) {
+			throw new BusinessException(ErrorCode.PASSWORD_TOO_SHORT, "Mật khẩu mới tối thiểu 6 ký tự.");
+		}
+		if (passwordEncoder.matches(newPassword, user.getPasswordHash())) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Mật khẩu mới phải khác mật khẩu hiện tại.");
+		}
+		// B4: Hash và lưu
+		user.setPasswordHash(passwordEncoder.encode(newPassword));
+		userRepository.save(user);
 	}
 }

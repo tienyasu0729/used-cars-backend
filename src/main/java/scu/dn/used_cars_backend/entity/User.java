@@ -38,6 +38,10 @@ public class User extends BaseEntity {
 	@Column(name = "avatar_url", length = 500)
 	private String avatarUrl;
 
+	// Địa chỉ liên hệ / nơi ở — cột address (NVARCHAR 500).
+	@Column(length = 500)
+	private String address;
+
 	@Column(nullable = false, length = 20)
 	private String status = "active";
 

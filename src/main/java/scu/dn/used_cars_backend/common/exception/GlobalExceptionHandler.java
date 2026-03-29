@@ -129,6 +129,8 @@ public class GlobalExceptionHandler {
 			case UNAUTHORIZED -> "Yêu cầu đăng nhập.";
 			case FORBIDDEN -> "Không có quyền truy cập.";
 			case INVALID_CREDENTIALS -> "Sai email hoặc mật khẩu.";
+			case INVALID_CURRENT_PASSWORD -> "Mật khẩu hiện tại không đúng.";
+			case PASSWORD_TOO_SHORT -> "Mật khẩu mới tối thiểu 6 ký tự.";
 			case USER_NOT_FOUND -> "Không tìm thấy người dùng.";
 			case ACCOUNT_SUSPENDED -> "Tài khoản bị khóa.";
 			case VALIDATION_FAILED -> "Dữ liệu không hợp lệ.";
@@ -149,6 +151,11 @@ public class GlobalExceptionHandler {
 			case BOOKING_CANNOT_CANCEL -> "Lịch hẹn không thể hủy.";
 			case INVALID_STATUS_TRANSITION -> "Chuyển trạng thái không hợp lệ.";
 			case BOOKING_ACCESS_DENIED -> "Không có quyền truy cập lịch hẹn này.";
+			case TRANSFER_NOT_FOUND -> "Không tìm thấy yêu cầu điều chuyển.";
+			case VEHICLE_NOT_IN_BRANCH -> "Xe không thuộc chi nhánh này.";
+			case TRANSFER_ALREADY_EXISTS -> "Đã có yêu cầu điều chuyển cho xe này.";
+			case INVALID_TRANSFER_STATUS -> "Trạng thái điều chuyển không hợp lệ.";
+			case TRANSFER_ACCESS_DENIED -> "Không có quyền truy cập yêu cầu điều chuyển này.";
 		};
 	}
 }

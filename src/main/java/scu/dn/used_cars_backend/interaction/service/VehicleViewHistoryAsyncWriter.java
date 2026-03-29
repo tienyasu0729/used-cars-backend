@@ -1,4 +1,4 @@
-package scu.dn.used_cars_backend.tier3.interaction.service;
+package scu.dn.used_cars_backend.interaction.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -7,8 +7,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-import scu.dn.used_cars_backend.tier3.interaction.entity.VehicleViewHistory;
-import scu.dn.used_cars_backend.tier3.interaction.repository.VehicleViewHistoryRepository;
+import scu.dn.used_cars_backend.interaction.entity.VehicleViewHistory;
+import scu.dn.used_cars_backend.interaction.repository.VehicleViewHistoryRepository;
 
 import java.time.Instant;
 

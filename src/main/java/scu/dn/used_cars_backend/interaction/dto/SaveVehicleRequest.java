@@ -1,4 +1,4 @@
-package scu.dn.used_cars_backend.tier3.interaction.dto;
+package scu.dn.used_cars_backend.interaction.dto;
 
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;

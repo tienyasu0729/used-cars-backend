@@ -1,4 +1,4 @@
-package scu.dn.used_cars_backend.tier3.interaction.service;
+package scu.dn.used_cars_backend.interaction.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,15 +16,15 @@ import scu.dn.used_cars_backend.entity.VehicleImage;
 import scu.dn.used_cars_backend.repository.UserRepository;
 import scu.dn.used_cars_backend.service.vehicle.InteractionVehicleSnapshot;
 import scu.dn.used_cars_backend.service.vehicle.VehicleReadPort;
-import scu.dn.used_cars_backend.tier3.interaction.dto.MergeViewHistoryDataResponse;
-import scu.dn.used_cars_backend.tier3.interaction.dto.MessageDataResponse;
-import scu.dn.used_cars_backend.tier3.interaction.dto.SavedVehicleResponse;
-import scu.dn.used_cars_backend.tier3.interaction.dto.ViewHistoryResponse;
-import scu.dn.used_cars_backend.tier3.interaction.entity.SavedVehicle;
-import scu.dn.used_cars_backend.tier3.interaction.entity.SavedVehicleId;
-import scu.dn.used_cars_backend.tier3.interaction.entity.VehicleViewHistory;
-import scu.dn.used_cars_backend.tier3.interaction.repository.SavedVehicleRepository;
-import scu.dn.used_cars_backend.tier3.interaction.repository.VehicleViewHistoryRepository;
+import scu.dn.used_cars_backend.interaction.dto.MergeViewHistoryDataResponse;
+import scu.dn.used_cars_backend.interaction.dto.MessageDataResponse;
+import scu.dn.used_cars_backend.interaction.dto.SavedVehicleResponse;
+import scu.dn.used_cars_backend.interaction.dto.ViewHistoryResponse;
+import scu.dn.used_cars_backend.interaction.entity.SavedVehicle;
+import scu.dn.used_cars_backend.interaction.entity.SavedVehicleId;
+import scu.dn.used_cars_backend.interaction.entity.VehicleViewHistory;
+import scu.dn.used_cars_backend.interaction.repository.SavedVehicleRepository;
+import scu.dn.used_cars_backend.interaction.repository.VehicleViewHistoryRepository;
 
 import java.util.ArrayList;
 import java.util.HashSet;

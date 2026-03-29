@@ -1,4 +1,4 @@
-package scu.dn.used_cars_backend.tier3.interaction.repository;
+package scu.dn.used_cars_backend.interaction.repository;
 
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -6,7 +6,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import scu.dn.used_cars_backend.tier3.interaction.entity.VehicleViewHistory;
+import scu.dn.used_cars_backend.interaction.entity.VehicleViewHistory;
 
 import java.util.List;
 

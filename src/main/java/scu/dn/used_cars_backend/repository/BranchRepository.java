@@ -22,4 +22,6 @@ public interface BranchRepository extends JpaRepository<Branch, Integer> {
 
 	Optional<Branch> findByIdAndDeletedFalse(Integer id);
 
+	Optional<Branch> findFirstByManager_IdAndDeletedFalse(Long managerId);
+
 }

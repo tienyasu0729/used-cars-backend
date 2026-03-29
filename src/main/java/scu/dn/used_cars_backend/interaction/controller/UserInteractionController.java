@@ -1,4 +1,4 @@
-package scu.dn.used_cars_backend.tier3.interaction.controller;
+package scu.dn.used_cars_backend.interaction.controller;
 
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -17,13 +17,13 @@ import org.springframework.web.bind.annotation.RestController;
 import scu.dn.used_cars_backend.common.api.ApiResponse;
 import scu.dn.used_cars_backend.common.exception.BusinessException;
 import scu.dn.used_cars_backend.common.exception.ErrorCode;
-import scu.dn.used_cars_backend.tier3.interaction.dto.MergeViewHistoryDataResponse;
-import scu.dn.used_cars_backend.tier3.interaction.dto.MergeViewHistoryRequest;
-import scu.dn.used_cars_backend.tier3.interaction.dto.MessageDataResponse;
-import scu.dn.used_cars_backend.tier3.interaction.dto.SaveVehicleRequest;
-import scu.dn.used_cars_backend.tier3.interaction.dto.SavedVehicleResponse;
-import scu.dn.used_cars_backend.tier3.interaction.dto.ViewHistoryResponse;
-import scu.dn.used_cars_backend.tier3.interaction.service.UserInteractionService;
+import scu.dn.used_cars_backend.interaction.dto.MergeViewHistoryDataResponse;
+import scu.dn.used_cars_backend.interaction.dto.MergeViewHistoryRequest;
+import scu.dn.used_cars_backend.interaction.dto.MessageDataResponse;
+import scu.dn.used_cars_backend.interaction.dto.SaveVehicleRequest;
+import scu.dn.used_cars_backend.interaction.dto.SavedVehicleResponse;
+import scu.dn.used_cars_backend.interaction.dto.ViewHistoryResponse;
+import scu.dn.used_cars_backend.interaction.service.UserInteractionService;
 
 import java.util.List;
 

@@ -162,6 +162,47 @@ public class VehicleService {
 		return toDetailDto(saved);
 	}
 
+	/** Tier 3.3 — Admin duyệt điều chuyển: đánh dấu xe InTransfer tại chi nhánh nguồn (entrypoint Dev 2). */
+	@Transactional
+	public void applyTransferApprovedMarkInTransfer(long vehicleId, int expectedFromBranchId) {
+		Vehicle v = vehicleRepository.findManagedDetailById(vehicleId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
+		if (v.isDeleted()) {
+			throw new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe.");
+		}
+		if (v.getBranch().getId() != expectedFromBranchId) {
+			throw new BusinessException(ErrorCode.VEHICLE_NOT_IN_BRANCH, "Xe không thuộc chi nhánh nguồn của yêu cầu.");
+		}
+		if (!"Available".equals(v.getStatus())) {
+			throw new BusinessException(ErrorCode.VEHICLE_NOT_AVAILABLE, "Xe không ở trạng thái Available để duyệt điều chuyển.");
+		}
+		v.setStatus("InTransfer");
+		vehicleRepository.save(v);
+		evictVehicleCaches(vehicleId);
+	}
+
+	/** Tier 3.3 — Manager đích xác nhận nhận xe: chuyển branch + Available (entrypoint Dev 2). */
+	@Transactional
+	public void applyTransferCompleteMoveToBranch(long vehicleId, int fromBranchId, int toBranchId) {
+		Vehicle v = vehicleRepository.findManagedDetailById(vehicleId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
+		if (v.isDeleted()) {
+			throw new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe.");
+		}
+		if (!"InTransfer".equals(v.getStatus())) {
+			throw new BusinessException(ErrorCode.VEHICLE_NOT_AVAILABLE, "Xe không ở trạng thái InTransfer để hoàn tất điều chuyển.");
+		}
+		if (v.getBranch().getId() != fromBranchId) {
+			throw new BusinessException(ErrorCode.VEHICLE_NOT_IN_BRANCH, "Xe không còn ở chi nhánh nguồn của yêu cầu.");
+		}
+		Branch to = branchRepository.findByIdAndDeletedFalse(toBranchId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.BRANCH_NOT_FOUND, "Không tìm thấy chi nhánh đích."));
+		v.setBranch(to);
+		v.setStatus("Available");
+		vehicleRepository.save(v);
+		evictVehicleCaches(vehicleId);
+	}
+
 	@Transactional
 	public void softDeleteVehicle(long id, long actorUserId, boolean isAdmin) {
 		Vehicle v = vehicleRepository.findManagedDetailById(id)

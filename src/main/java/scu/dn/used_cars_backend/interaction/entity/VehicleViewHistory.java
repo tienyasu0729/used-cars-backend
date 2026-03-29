@@ -1,4 +1,4 @@
-package scu.dn.used_cars_backend.tier3.interaction.entity;
+package scu.dn.used_cars_backend.interaction.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;

@@ -1,16 +1,18 @@
-package scu.dn.used_cars_backend.tier3.interaction.repository;
+package scu.dn.used_cars_backend.interaction.repository;
 
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import scu.dn.used_cars_backend.tier3.interaction.entity.SavedVehicle;
-import scu.dn.used_cars_backend.tier3.interaction.entity.SavedVehicleId;
+import scu.dn.used_cars_backend.interaction.entity.SavedVehicle;
+import scu.dn.used_cars_backend.interaction.entity.SavedVehicleId;
 
 import java.util.List;
 
 public interface SavedVehicleRepository extends JpaRepository<SavedVehicle, SavedVehicleId> {
+
+	long countByIdUserId(Long userId);
 
 	boolean existsByUser_IdAndVehicle_Id(Long userId, Long vehicleId);
 

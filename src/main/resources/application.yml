@@ -1,6 +1,10 @@
 spring:
   application:
     name: used-cars-backend
+  servlet:
+    multipart:
+      max-file-size: 2MB
+      max-request-size: 3MB
   datasource:
     # JDBC KHÔNG dùng kiểu SSMS "HOST\INSTANCE". Dùng "host:port" để bỏ qua SQL Browser (UDP 1434).
     # Nếu để instanceName mà không ghi port → driver hỏi Browser → timeout nếu Browser tắt / firewall chặn 1434.

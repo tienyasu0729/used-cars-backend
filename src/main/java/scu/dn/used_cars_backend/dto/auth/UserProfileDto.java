@@ -15,5 +15,7 @@ public class UserProfileDto {
 	private String name;
 	private String email;
 	private String phone;
+	private String address;
 	private String role;
+	private Integer branchId;
 }

@@ -9,7 +9,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.domain.Sort.Order;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,6 +24,7 @@ import scu.dn.used_cars_backend.dto.vehicle.VehicleSummaryDto;
 import scu.dn.used_cars_backend.dto.vehicle.VehicleUpdateRequest;
 import scu.dn.used_cars_backend.entity.Branch;
 import scu.dn.used_cars_backend.entity.Category;
+import scu.dn.used_cars_backend.entity.StaffAssignment;
 import scu.dn.used_cars_backend.entity.Subcategory;
 import scu.dn.used_cars_backend.entity.User;
 import scu.dn.used_cars_backend.entity.Vehicle;
@@ -39,6 +39,7 @@ import java.math.BigDecimal;
 import java.security.SecureRandom;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -77,9 +78,17 @@ public class VehicleService {
 	@Transactional(readOnly = true)
 	public VehicleListResponse listPublic(Integer categoryId, Integer subcategoryId, BigDecimal minPrice,
 			BigDecimal maxPrice, Integer yearMin, Integer yearMax, String transmission, Integer branchId, int page,
-			int size, String sort) {
+			int size, String sort, String keyword) {
 		String tx = transmission != null && !transmission.isBlank() ? transmission.trim() : null;
+		String kw = keyword != null && !keyword.isBlank() ? keyword.trim() : null;
 		String sortKey = normalizeListSortKey(sort);
+
+		// Khi có keyword thì bỏ cache (keyword rất đa dạng, cache key sẽ phình to)
+		if (kw != null) {
+			return loadListFromDatabase(kw, categoryId, subcategoryId, minPrice, maxPrice, yearMin, yearMax,
+					tx, branchId, page, size, sortKey);
+		}
+
 		String key = buildListCacheKey(categoryId, subcategoryId, minPrice, maxPrice, yearMin, yearMax, tx, branchId,
 				page, size, sortKey);
 		Cache cache = cacheManager.getCache("vehicleList");
@@ -89,8 +98,8 @@ public class VehicleService {
 				return (VehicleListResponse) w.get();
 			}
 		}
-		VehicleListResponse body = loadListFromDatabase(categoryId, subcategoryId, minPrice, maxPrice, yearMin, yearMax,
-				tx, branchId, page, size, sortKey);
+		VehicleListResponse body = loadListFromDatabase(null, categoryId, subcategoryId, minPrice, maxPrice, yearMin,
+				yearMax, tx, branchId, page, size, sortKey);
 		if (cache != null) {
 			cache.put(key, body);
 		}
@@ -114,6 +123,60 @@ public class VehicleService {
 			cache.put(key, dto);
 		}
 		return dto;
+	}
+
+	/**
+	 * Danh sách xe trong phạm vi quản lý: Admin xem mọi chi nhánh; manager/staff chỉ chi nhánh
+	 * (manager_id hoặc StaffAssignments active). Khác GET /vehicles công khai: gồm cả xe đã ẩn (deleted/Hidden).
+	 * scope=NETWORK: toàn hệ thống nhưng chỉ xe còn hiển thị công khai (deleted=false, status khác Hidden) — tra cứu điều chuyển.
+	 */
+	@Transactional(readOnly = true)
+	public VehicleListResponse listForManager(long actorUserId, boolean isAdmin, Integer categoryId,
+			Integer subcategoryId, java.math.BigDecimal minPrice, java.math.BigDecimal maxPrice, Integer yearMin,
+			Integer yearMax, String transmission, Integer branchId, int page, int size, String sort, String scope) {
+		String tx = transmission != null && !transmission.isBlank() ? transmission.trim() : null;
+		String sortKey = normalizeListSortKey(sort);
+		Sort sortObj = listSortForPublicList(sortKey);
+		int pg = Math.max(0, page);
+		boolean networkScope = "NETWORK".equalsIgnoreCase(scope);
+
+		// Tab tra cứu mạng lưới: cùng điều kiện list công khai, mọi chi nhánh (có thể lọc branchId)
+		if (networkScope) {
+			int netSz = Math.min(500, Math.max(1, size));
+			PageRequest pr = PageRequest.of(pg, netSz, sortObj);
+			Page<Vehicle> p = vehicleRepository.findPublicPage(null, categoryId, subcategoryId, minPrice, maxPrice,
+					yearMin, yearMax, tx, branchId, pr);
+			return buildVehicleListResponse(p);
+		}
+
+		int sz = Math.min(100, Math.max(1, size));
+		PageRequest pr = PageRequest.of(pg, sz, sortObj);
+
+		List<Integer> branchIds;
+		if (isAdmin) {
+			branchIds = branchRepository.findAllByDeletedFalseOrderByIdAsc().stream().map(Branch::getId).toList();
+		} else {
+			branchIds = resolveManageableBranchIds(actorUserId);
+		}
+		if (branchIds.isEmpty()) {
+			return emptyListResponse(pg, sz);
+		}
+		if (branchId != null && !branchIds.contains(branchId)) {
+			return emptyListResponse(pg, sz);
+		}
+
+		Page<Vehicle> p = vehicleRepository.findManagedPage(branchIds, categoryId, subcategoryId, minPrice, maxPrice,
+				yearMin, yearMax, tx, branchId, pr);
+		return buildVehicleListResponse(p);
+	}
+
+	/** Chi tiết xe cho màn sửa manager — 403 nếu xe không thuộc chi nhánh được quản lý. */
+	@Transactional(readOnly = true)
+	public VehicleDetailDto getManagedDetail(long id, long actorUserId, boolean isAdmin) {
+		Vehicle v = vehicleRepository.findManagedDetailById(id)
+				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
+		assertCanManageBranch(actorUserId, isAdmin, v.getBranch());
+		return toDetailDto(v);
 	}
 
 	@Transactional
@@ -140,12 +203,9 @@ public class VehicleService {
 
 	@Transactional
 	public VehicleDetailDto updateVehicle(long id, VehicleUpdateRequest req, long actorUserId, boolean isAdmin) {
-		// B1: lấy xe + kiểm tra xóa mềm + quyền trên chi nhánh hiện tại
+		// B1: lấy xe + quyền trên chi nhánh (kể cả xe đã ẩn khỏi công khai)
 		Vehicle v = vehicleRepository.findManagedDetailById(id)
 				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
-		if (v.isDeleted()) {
-			throw new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe.");
-		}
 		assertCanManageBranch(actorUserId, isAdmin, v.getBranch());
 
 		// B2: load ref mới + validate status
@@ -158,7 +218,12 @@ public class VehicleService {
 		}
 
 		// B3: ghi đè field + thay ảnh
+		boolean wasDeleted = v.isDeleted();
 		copyUpdateRequestToVehicle(req, v, category, sub, branch);
+		// Khôi phục hiển thị công khai khi không còn trạng thái Hidden (Hidden vẫn ẩn list công khai)
+		if (wasDeleted && !"Hidden".equals(req.getStatus())) {
+			v.setDeleted(false);
+		}
 		v.getImages().clear();
 		applyImagesFromRequest(v, req.getImages());
 
@@ -219,6 +284,21 @@ public class VehicleService {
 		v.setDeleted(true);
 		vehicleRepository.save(v);
 		evictVehicleCaches(id);
+	}
+
+	/** Bỏ cờ xóa mềm — xe hiện lại trên list công khai (trừ khi status = Hidden). */
+	@Transactional
+	public VehicleDetailDto restorePublicListing(long id, long actorUserId, boolean isAdmin) {
+		Vehicle v = vehicleRepository.findManagedDetailById(id)
+				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
+		assertCanManageBranch(actorUserId, isAdmin, v.getBranch());
+		if (!v.isDeleted()) {
+			return toDetailDto(v);
+		}
+		v.setDeleted(false);
+		vehicleRepository.save(v);
+		evictVehicleCaches(id);
+		return toDetailDto(v);
 	}
 
 	/** Giống @CacheEvict: xóa toàn bộ list + 1 key detail. */
@@ -291,13 +371,55 @@ public class VehicleService {
 				+ br + "|" + page + "|" + size + "|" + sortKey;
 	}
 
-	private VehicleListResponse loadListFromDatabase(Integer categoryId, Integer subcategoryId, BigDecimal minPrice,
-			BigDecimal maxPrice, Integer yearMin, Integer yearMax, String transmission, Integer branchId, int page,
-			int size, String sortKey) {
+	/** Các chi nhánh user được phép thao tác (manager_id + phân công active). */
+	private List<Integer> resolveManageableBranchIds(long actorUserId) {
+		LinkedHashSet<Integer> set = new LinkedHashSet<>();
+		for (Branch b : branchRepository.findAllByManager_IdAndDeletedFalse(actorUserId)) {
+			set.add(b.getId());
+		}
+		for (StaffAssignment sa : staffAssignmentRepository.findByUserIdAndActiveTrue(actorUserId)) {
+			if (sa.getBranchId() != null) {
+				set.add(sa.getBranchId());
+			}
+		}
+		return new ArrayList<>(set);
+	}
+
+	private static VehicleListResponse emptyListResponse(int page, int size) {
+		PageMetaDto meta = new PageMetaDto();
+		meta.setPage(page);
+		meta.setSize(size);
+		meta.setTotalElements(0);
+		meta.setTotalPages(0);
+		VehicleListResponse res = new VehicleListResponse();
+		res.setItems(new ArrayList<>());
+		res.setMeta(meta);
+		return res;
+	}
+
+	private static VehicleListResponse buildVehicleListResponse(Page<Vehicle> p) {
+		List<VehicleSummaryDto> items = new ArrayList<>();
+		for (Vehicle v : p.getContent()) {
+			items.add(toSummaryDto(v));
+		}
+		PageMetaDto meta = new PageMetaDto();
+		meta.setPage(p.getNumber());
+		meta.setSize(p.getSize());
+		meta.setTotalElements(p.getTotalElements());
+		meta.setTotalPages(p.getTotalPages());
+		VehicleListResponse res = new VehicleListResponse();
+		res.setItems(items);
+		res.setMeta(meta);
+		return res;
+	}
+
+	private VehicleListResponse loadListFromDatabase(String keyword, Integer categoryId, Integer subcategoryId,
+			BigDecimal minPrice, BigDecimal maxPrice, Integer yearMin, Integer yearMax, String transmission,
+			Integer branchId, int page, int size, String sortKey) {
 		Sort sort = listSortForPublicList(sortKey);
 		PageRequest pr = PageRequest.of(Math.max(0, page), Math.min(100, Math.max(1, size)), sort);
-		Page<Vehicle> p = vehicleRepository.findPublicPage(categoryId, subcategoryId, minPrice, maxPrice, yearMin,
-				yearMax, transmission, branchId, pr);
+		Page<Vehicle> p = vehicleRepository.findPublicPage(keyword, categoryId, subcategoryId, minPrice, maxPrice,
+				yearMin, yearMax, transmission, branchId, pr);
 		List<VehicleSummaryDto> items = new ArrayList<>();
 		for (Vehicle v : p.getContent()) {
 			items.add(toSummaryDto(v));
@@ -360,18 +482,42 @@ public class VehicleService {
 		v.setStatus(req.getStatus());
 	}
 
+	/**
+	 * Có StaffAssignment active đúng chi nhánh — duyệt list thay vì exists* derived query (tránh edge case Spring Data).
+	 */
+	private boolean hasActiveAssignmentAtBranch(long actorUserId, Integer branchId) {
+		if (branchId == null) {
+			return false;
+		}
+		for (StaffAssignment sa : staffAssignmentRepository.findByUserIdAndActiveTrue(actorUserId)) {
+			if (branchId.equals(sa.getBranchId())) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	private void assertCanManageBranch(long actorUserId, boolean isAdmin, Branch branch) {
 		if (isAdmin) {
 			return;
 		}
+		Integer bid = branch.getId();
 		User manager = branch.getManager();
 		if (manager != null && Objects.equals(manager.getId(), actorUserId)) {
 			return;
 		}
-		if (staffAssignmentRepository.existsByUserIdAndBranchIdAndActiveTrue(actorUserId, branch.getId())) {
+		// Truy vấn trực tiếp (phòng branch.manager chưa khớp entity trong session)
+		if (branchRepository.findFirstByManager_IdAndDeletedFalse(actorUserId).filter(b -> b.getId().equals(bid))
+				.isPresent()) {
 			return;
 		}
-		throw new AccessDeniedException("Chỉ Admin, BranchManager hoặc nhân viên được phân công chi nhánh này được thao tác.");
+		if (hasActiveAssignmentAtBranch(actorUserId, bid)) {
+			return;
+		}
+		String bname = branch.getName() != null ? branch.getName() : "?";
+		throw new BusinessException(ErrorCode.FORBIDDEN, String.format(
+				"Không có quyền thao tác xe thuộc chi nhánh \"%s\" (id=%d). Cần: Admin; hoặc tài khoản là manager_id của chi nhánh; hoặc có StaffAssignments đang active tại chi nhánh đó.",
+				bname, bid));
 	}
 
 	private static void applyImagesFromRequest(Vehicle v, List<VehicleImageWriteDto> dtos) {
@@ -435,7 +581,9 @@ public class VehicleService {
 		dto.setSubcategoryId(v.getSubcategory().getId());
 		dto.setSubcategoryName(v.getSubcategory().getName());
 		dto.setBranchId(v.getBranch().getId());
+		dto.setBranchName(v.getBranch().getName());
 		dto.setStatus(v.getStatus());
+		dto.setDeleted(v.isDeleted());
 		dto.setPrimaryImageUrl(pickPrimaryImageUrl(v));
 		return dto;
 	}
@@ -462,6 +610,7 @@ public class VehicleService {
 		dto.setOrigin(v.getOrigin());
 		dto.setPostingDate(v.getPostingDate());
 		dto.setStatus(v.getStatus());
+		dto.setDeleted(v.isDeleted());
 	}
 
 	private static void fillDetailDtoRefs(Vehicle v, VehicleDetailDto dto) {

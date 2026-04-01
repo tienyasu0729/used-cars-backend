@@ -17,6 +17,8 @@ import scu.dn.used_cars_backend.entity.User;
 import scu.dn.used_cars_backend.entity.UserRole;
 import scu.dn.used_cars_backend.repository.RoleRepository;
 import scu.dn.used_cars_backend.repository.UserRepository;
+import scu.dn.used_cars_backend.entity.Branch;
+import scu.dn.used_cars_backend.repository.BranchRepository;
 import scu.dn.used_cars_backend.repository.StaffAssignmentRepository;
 import scu.dn.used_cars_backend.security.JwtService;
 
@@ -34,6 +36,7 @@ public class AuthService {
 	private final PasswordEncoder passwordEncoder;
 	private final JwtService jwtService;
 	private final StaffAssignmentRepository staffAssignmentRepository;
+	private final BranchRepository branchRepository;
 
 	@Transactional(readOnly = true)
 	public LoginResponse login(LoginRequest request) {
@@ -62,6 +65,11 @@ public class AuthService {
 		if (roleName.equals("BranchManager") || roleName.equals("SalesStaff")) {
 			staffAssignmentRepository.findFirstByUserIdAndActiveTrueOrderByIdDesc(user.getId())
 					.ifPresent(assignment -> profile.setBranchId(assignment.getBranchId()));
+			if (profile.getBranchId() == null && "BranchManager".equals(roleName)) {
+				branchRepository.findFirstByManager_IdAndDeletedFalse(user.getId())
+						.map(Branch::getId)
+						.ifPresent(profile::setBranchId);
+			}
 		}
 
 		return new LoginResponse(profile, token);

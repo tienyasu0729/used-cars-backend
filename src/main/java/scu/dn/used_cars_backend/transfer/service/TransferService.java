@@ -62,21 +62,20 @@ public class TransferService {
 		if (vehicle.isDeleted()) {
 			throw new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe.");
 		}
-		// B3: Xe thuộc branch của manager
-		if (!Objects.equals(vehicle.getBranch().getId(), managerBranchId)) {
-			throw new BusinessException(ErrorCode.VEHICLE_NOT_IN_BRANCH, "Xe không thuộc chi nhánh của bạn.");
+		// B3 (PULL): Xe phải thuộc chi nhánh khác — manager kéo xe từ nơi khác về nhánh mình
+		int vehicleBranchId = vehicle.getBranch().getId();
+		if (vehicleBranchId == managerBranchId) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Không thể điều chuyển xe đã thuộc chi nhánh của bạn.");
 		}
 		// B4: Trạng thái Available
 		if (!"Available".equals(vehicle.getStatus())) {
 			throw new BusinessException(ErrorCode.VEHICLE_NOT_AVAILABLE, "Chỉ xe Available mới tạo điều chuyển.");
 		}
-		// B5: Chi nhánh đích hợp lệ, khác nguồn
+		// B5: toBranchId phải là chi nhánh của người tạo (PULL: kéo xe về nhánh mình)
 		int toBranchId = body.getToBranchId();
-		if (managerBranchId == toBranchId) {
-			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Chi nhánh đích phải khác chi nhánh nguồn.");
+		if (toBranchId != managerBranchId) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Chi nhánh đích phải là chi nhánh của bạn.");
 		}
-		branchRepository.findByIdAndDeletedFalse(toBranchId)
-				.orElseThrow(() -> new BusinessException(ErrorCode.BRANCH_NOT_FOUND, "Không tìm thấy chi nhánh đích."));
 		// B6: Không có Pending/Approved cho cùng xe
 		if (transferRequestRepository.existsByVehicle_IdAndStatusIn(vehicle.getId(), ACTIVE_TRANSFER_STATUSES)) {
 			throw new BusinessException(ErrorCode.TRANSFER_ALREADY_EXISTS, "Xe đang có yêu cầu điều chuyển chưa kết thúc.");
@@ -84,8 +83,8 @@ public class TransferService {
 
 		TransferRequest tr = new TransferRequest();
 		tr.setVehicle(vehicle);
-		tr.setFromBranchId(managerBranchId);
-		tr.setToBranchId(toBranchId);
+		tr.setFromBranchId(vehicleBranchId);
+		tr.setToBranchId(managerBranchId);
 		tr.setRequestedBy(userId);
 		tr.setStatus("Pending");
 		tr.setReason(trimToNull(body.getReason()));
@@ -130,9 +129,14 @@ public class TransferService {
 	}
 
 	@Transactional
-	public TransferResponseDto approve(long id, TransferActionRequestDto body, long adminUserId) {
+	public TransferResponseDto approve(long id, TransferActionRequestDto body, long userId) {
+		// B0: Người duyệt phải là manager chi nhánh nguồn (fromBranch)
+		int approverBranchId = requireManagerBranchId(userId);
 		TransferRequest t = transferRequestRepository.findByIdForUpdate(id)
 				.orElseThrow(() -> new BusinessException(ErrorCode.TRANSFER_NOT_FOUND, "Không tìm thấy yêu cầu."));
+		if (approverBranchId != t.getFromBranchId()) {
+			throw new BusinessException(ErrorCode.TRANSFER_ACCESS_DENIED, "Chỉ quản lý chi nhánh nơi có xe mới được phê duyệt.");
+		}
 		// B1: Chỉ Pending
 		if (!"Pending".equals(t.getStatus())) {
 			throw new BusinessException(ErrorCode.INVALID_TRANSFER_STATUS, "Chỉ yêu cầu Pending mới được phê duyệt.");
@@ -142,7 +146,7 @@ public class TransferService {
 		// B3: Ghi lịch sử duyệt
 		TransferApprovalHistory h = new TransferApprovalHistory();
 		h.setTransfer(t);
-		h.setApprovedBy(adminUserId);
+		h.setApprovedBy(userId);
 		h.setAction("Approved");
 		h.setNote(body.getNote().trim());
 		transferApprovalHistoryRepository.save(h);
@@ -153,16 +157,21 @@ public class TransferService {
 	}
 
 	@Transactional
-	public TransferResponseDto reject(long id, TransferActionRequestDto body, long adminUserId) {
+	public TransferResponseDto reject(long id, TransferActionRequestDto body, long userId) {
+		// B0: Người từ chối phải là manager chi nhánh nguồn (fromBranch)
+		int rejecterBranchId = requireManagerBranchId(userId);
 		TransferRequest t = transferRequestRepository.findByIdForUpdate(id)
 				.orElseThrow(() -> new BusinessException(ErrorCode.TRANSFER_NOT_FOUND, "Không tìm thấy yêu cầu."));
+		if (rejecterBranchId != t.getFromBranchId()) {
+			throw new BusinessException(ErrorCode.TRANSFER_ACCESS_DENIED, "Chỉ quản lý chi nhánh nơi có xe mới được từ chối.");
+		}
 		if (!"Pending".equals(t.getStatus())) {
 			throw new BusinessException(ErrorCode.INVALID_TRANSFER_STATUS, "Chỉ yêu cầu Pending mới được từ chối.");
 		}
 		t.setStatus("Rejected");
 		TransferApprovalHistory h = new TransferApprovalHistory();
 		h.setTransfer(t);
-		h.setApprovedBy(adminUserId);
+		h.setApprovedBy(userId);
 		h.setAction("Rejected");
 		h.setNote(body.getNote().trim());
 		transferApprovalHistoryRepository.save(h);

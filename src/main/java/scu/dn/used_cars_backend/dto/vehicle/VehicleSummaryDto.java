@@ -26,7 +26,11 @@ public class VehicleSummaryDto {
 	private Integer subcategoryId;
 	private String subcategoryName;
 	private Integer branchId;
+	/** Tên chi nhánh — tiện cho bảng quản lý xe */
+	private String branchName;
 	private String status;
+	/** true = đã ẩn khỏi trang công khai (is_deleted), vẫn hiện trong quản lý chi nhánh */
+	private boolean deleted;
 	private String primaryImageUrl;
 
 }

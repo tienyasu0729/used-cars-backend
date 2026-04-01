@@ -24,4 +24,7 @@ public interface BranchRepository extends JpaRepository<Branch, Integer> {
 
 	Optional<Branch> findFirstByManager_IdAndDeletedFalse(Long managerId);
 
+	/** Một user có thể là manager của một chi nhánh (hoặc nhiều nếu dữ liệu cho phép). */
+	List<Branch> findAllByManager_IdAndDeletedFalse(Long managerId);
+
 }

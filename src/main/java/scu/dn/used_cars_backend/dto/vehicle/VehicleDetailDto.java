@@ -28,6 +28,8 @@ public class VehicleDetailDto {
 	private String origin;
 	private LocalDate postingDate;
 	private String status;
+	/** Đã ẩn khỏi tin đăng công khai (xóa mềm) — vẫn sửa được trong manager */
+	private boolean deleted;
 	private Integer categoryId;
 	private String categoryName;
 	private Integer subcategoryId;

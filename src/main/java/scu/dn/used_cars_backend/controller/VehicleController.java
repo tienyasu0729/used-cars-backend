@@ -37,10 +37,11 @@ public class VehicleController {
 			@RequestParam(required = false) Integer yearMax,
 			@RequestParam(required = false) String transmission,
 			@RequestParam(required = false) Integer branchId,
-			@RequestParam(required = false) String sort) {
+			@RequestParam(required = false) String sort,
+			@RequestParam(required = false) String q) {
 		Integer categoryId = brand;
 		VehicleListResponse data = vehicleService.listPublic(categoryId, subcategoryId, minPrice, maxPrice, yearMin,
-				yearMax, transmission, branchId, page, size, sort);
+				yearMax, transmission, branchId, page, size, sort, q);
 		return ResponseEntity.ok(ApiResponse.success(data));
 	}
 

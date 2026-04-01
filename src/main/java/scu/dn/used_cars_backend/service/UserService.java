@@ -11,6 +11,8 @@ import scu.dn.used_cars_backend.dto.CustomerStatsResponse;
 import scu.dn.used_cars_backend.dto.UpdateProfileRequest;
 import scu.dn.used_cars_backend.dto.auth.UserProfileDto;
 import scu.dn.used_cars_backend.entity.User;
+import scu.dn.used_cars_backend.entity.Branch;
+import scu.dn.used_cars_backend.repository.BranchRepository;
 import scu.dn.used_cars_backend.repository.StaffAssignmentRepository;
 import scu.dn.used_cars_backend.repository.UserRepository;
 import scu.dn.used_cars_backend.interaction.repository.SavedVehicleRepository;
@@ -19,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.Locale;
+import java.util.Optional;
 
 // Hồ sơ người dùng: cập nhật tên/SĐT, avatar, thống kê dashboard khách.
 @Service
@@ -30,6 +33,7 @@ public class UserService {
 
 	private final UserRepository userRepository;
 	private final StaffAssignmentRepository staffAssignmentRepository;
+	private final BranchRepository branchRepository;
 	private final SavedVehicleRepository savedVehicleRepository;
 	private final BookingRepository bookingRepository;
 
@@ -63,11 +67,24 @@ public class UserService {
 				.dateOfBirth(user.getDateOfBirth())
 				.gender(user.getGender())
 				.role(roleName);
-		if ("BranchManager".equals(roleName) || "SalesStaff".equals(roleName)) {
-			staffAssignmentRepository.findFirstByUserIdAndActiveTrueOrderByIdDesc(user.getId())
-					.ifPresent(a -> b.branchId(a.getBranchId()));
-		}
+		resolveProfileBranchId(user.getId(), roleName).ifPresent(b::branchId);
 		return b.build();
+	}
+
+	/** Chi nhánh hiển thị trên profile: StaffAssignments active, hoặc Branches.manager_id (BranchManager). */
+	private Optional<Integer> resolveProfileBranchId(long userId, String roleName) {
+		if (!"BranchManager".equals(roleName) && !"SalesStaff".equals(roleName)) {
+			return Optional.empty();
+		}
+		Optional<Integer> fromSa = staffAssignmentRepository.findFirstByUserIdAndActiveTrueOrderByIdDesc(userId)
+				.map(sa -> sa.getBranchId());
+		if (fromSa.isPresent()) {
+			return fromSa;
+		}
+		if ("BranchManager".equals(roleName)) {
+			return branchRepository.findFirstByManager_IdAndDeletedFalse(userId).map(Branch::getId);
+		}
+		return Optional.empty();
 	}
 
 	private static String resolvePrimaryRoleName(User user) {

@@ -73,7 +73,7 @@ public class TransferController {
 	}
 
 	@PostMapping("/{id}/approve")
-	@PreAuthorize("hasRole('ADMIN')")
+	@PreAuthorize("hasAnyRole('BRANCHMANAGER','SALESSTAFF')")
 	public ResponseEntity<ApiResponse<TransferResponseDto>> approve(@PathVariable long id,
 			@Valid @RequestBody TransferActionRequestDto body,
 			Authentication authentication) {
@@ -82,7 +82,7 @@ public class TransferController {
 	}
 
 	@PostMapping("/{id}/reject")
-	@PreAuthorize("hasRole('ADMIN')")
+	@PreAuthorize("hasAnyRole('BRANCHMANAGER','SALESSTAFF')")
 	public ResponseEntity<ApiResponse<TransferResponseDto>> reject(@PathVariable long id,
 			@Valid @RequestBody TransferActionRequestDto body,
 			Authentication authentication) {

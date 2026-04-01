@@ -28,7 +28,7 @@ import scu.dn.used_cars_backend.service.VehicleService;
 @RestController
 @RequestMapping("/api/v1/manager/vehicles")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyRole('ADMIN','BRANCHMANAGER')")
+@PreAuthorize("hasAnyRole('ADMIN','BRANCHMANAGER','SALESSTAFF')")
 public class ManagerVehicleController {
 
 	private final VehicleService vehicleService;

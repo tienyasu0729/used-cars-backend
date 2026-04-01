@@ -39,7 +39,7 @@ public class TransferController {
 	private final TransferService transferService;
 
 	@PostMapping
-	@PreAuthorize("hasRole('BRANCHMANAGER')")
+	@PreAuthorize("hasAnyRole('BRANCHMANAGER','SALESSTAFF')")
 	public ResponseEntity<ApiResponse<TransferResponseDto>> create(@Valid @RequestBody CreateTransferRequestDto body,
 			Authentication authentication) {
 		long userId = requireUserId(authentication);
@@ -48,7 +48,7 @@ public class TransferController {
 	}
 
 	@GetMapping
-	@PreAuthorize("hasAnyRole('ADMIN','BRANCHMANAGER')")
+	@PreAuthorize("hasAnyRole('ADMIN','BRANCHMANAGER','SALESSTAFF')")
 	public ResponseEntity<ApiResponse<List<TransferResponseDto>>> list(
 			@RequestParam(required = false) String status,
 			@PageableDefault(size = 10) Pageable pageable,
@@ -65,7 +65,7 @@ public class TransferController {
 	}
 
 	@GetMapping("/{id}")
-	@PreAuthorize("hasAnyRole('ADMIN','BRANCHMANAGER')")
+	@PreAuthorize("hasAnyRole('ADMIN','BRANCHMANAGER','SALESSTAFF')")
 	public ResponseEntity<ApiResponse<TransferResponseDto>> getOne(@PathVariable long id,
 			Authentication authentication) {
 		long userId = requireUserId(authentication);

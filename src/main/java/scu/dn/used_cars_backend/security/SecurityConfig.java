@@ -55,11 +55,13 @@ public class SecurityConfig {
 						.requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/register").permitAll()
 						.requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
 						.requestMatchers(HttpMethod.GET, "/api/v1/catalog/**").permitAll()
-						.requestMatchers(HttpMethod.GET, "/api/v1/branches", "/api/v1/branches/*").permitAll()
+						.requestMatchers(HttpMethod.GET, "/api/v1/branches", "/api/v1/branches/*", "/api/v1/branches/*/team")
+								.permitAll()
 						.requestMatchers(HttpMethod.GET, "/api/v1/vehicles", "/api/v1/vehicles/*").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/v1/vehicles/*/view").permitAll()
 						.requestMatchers(HttpMethod.GET, "/api/v1/bookings/available-slots").permitAll()
 						.requestMatchers("/error").permitAll()
+						.requestMatchers("/api/v1/manager/staff/**").hasAnyRole("ADMIN", "BRANCHMANAGER")
 						.anyRequest().authenticated())
 				.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 		return http.build();

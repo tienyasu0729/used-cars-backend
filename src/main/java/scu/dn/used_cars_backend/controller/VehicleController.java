@@ -30,15 +30,22 @@ public class VehicleController {
 	public ResponseEntity<ApiResponse<VehicleListResponse>> list(@RequestParam(defaultValue = "0") int page,
 			@RequestParam(defaultValue = "20") int size,
 			@RequestParam(required = false) Integer brand,
+			@RequestParam(required = false) Integer subcategoryId,
 			@RequestParam(required = false) BigDecimal minPrice,
 			@RequestParam(required = false) BigDecimal maxPrice,
+			@RequestParam(required = false) Integer yearMin,
+			@RequestParam(required = false) Integer yearMax,
+			@RequestParam(required = false) String transmission,
+			@RequestParam(required = false) Integer branchId,
 			@RequestParam(required = false) String sort) {
 		Integer categoryId = brand;
-		VehicleListResponse data = vehicleService.listPublic(categoryId, minPrice, maxPrice, page, size, sort);
+		VehicleListResponse data = vehicleService.listPublic(categoryId, subcategoryId, minPrice, maxPrice, yearMin,
+				yearMax, transmission, branchId, page, size, sort);
 		return ResponseEntity.ok(ApiResponse.success(data));
 	}
 
-	@GetMapping("/{id}")
+	/** Chỉ khớp id số — tránh ăn path như {@code /vehicles/recently-viewed} (API Tier 3.1). */
+	@GetMapping("/{id:\\d+}")
 	public ResponseEntity<ApiResponse<VehicleDetailDto>> detail(@PathVariable long id) {
 		VehicleDetailDto dto = vehicleService.getPublicDetail(id);
 		if (dto == null) {

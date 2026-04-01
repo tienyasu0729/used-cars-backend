@@ -53,6 +53,9 @@ public class AuthService {
 				.email(user.getEmail())
 				.phone(user.getPhone())
 				.address(user.getAddress())
+				.avatarUrl(user.getAvatarUrl())
+				.dateOfBirth(user.getDateOfBirth())
+				.gender(user.getGender())
 				.role(roleName)
 				.build();
 
@@ -88,9 +91,13 @@ public class AuthService {
 		return new RegisterResponse("Tài khoản đã tạo. Vui lòng kiểm tra email xác thực.");
 	}
 
+	/**
+	 * Vai trò ghi vào JWT: lấy role có id lớn nhất (Admin, BranchManager, SalesStaff, Customer theo thứ tự id seed).
+	 * Tránh lỗi user có nhiều UserRoles mà min(id) luôn trả Customer → 403 trên API manager.
+	 */
 	private String resolvePrimaryRoleName(User user) {
 		return user.getUserRoles().stream()
-				.min(Comparator.comparingInt(ur -> ur.getRole().getId()))
+				.max(Comparator.comparingInt(ur -> ur.getRole().getId()))
 				.map(ur -> ur.getRole().getName())
 				.orElse(CUSTOMER_ROLE);
 	}
@@ -104,9 +111,9 @@ public class AuthService {
 		if (user.getPasswordHash() == null || !passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
 			throw new BusinessException(ErrorCode.INVALID_CURRENT_PASSWORD, "Mật khẩu hiện tại không đúng.");
 		}
-		// B3: Độ dài + khác mật cũ
-		if (newPassword.length() < 6) {
-			throw new BusinessException(ErrorCode.PASSWORD_TOO_SHORT, "Mật khẩu mới tối thiểu 6 ký tự.");
+		// B3: Độ dài + khác mật cũ (khớp RegisterRequest: 8–100 ký tự; DTO @Valid đã chặn, giữ lớp phòng thủ)
+		if (newPassword.length() < 8 || newPassword.length() > 100) {
+			throw new BusinessException(ErrorCode.PASSWORD_TOO_SHORT, "Mật khẩu từ 8 đến 100 ký tự.");
 		}
 		if (passwordEncoder.matches(newPassword, user.getPasswordHash())) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Mật khẩu mới phải khác mật khẩu hiện tại.");

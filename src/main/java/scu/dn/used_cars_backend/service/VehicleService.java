@@ -31,16 +31,15 @@ import scu.dn.used_cars_backend.entity.Vehicle;
 import scu.dn.used_cars_backend.entity.VehicleImage;
 import scu.dn.used_cars_backend.repository.BranchRepository;
 import scu.dn.used_cars_backend.repository.CategoryRepository;
+import scu.dn.used_cars_backend.repository.StaffAssignmentRepository;
 import scu.dn.used_cars_backend.repository.SubcategoryRepository;
-import scu.dn.used_cars_backend.repository.UserRepository;
 import scu.dn.used_cars_backend.repository.VehicleRepository;
 
 import java.math.BigDecimal;
-import java.time.Year;
+import java.security.SecureRandom;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 
@@ -52,31 +51,37 @@ public class VehicleService {
 	/** Tiền tố khóa cache — đổi khi DTO list/detail thay đổi để tránh trả bản cũ thiếu field. */
 	private static final String VEHICLE_LIST_CACHE_PREFIX = "v3:";
 	private static final String VEHICLE_DETAIL_CACHE_PREFIX = "v3:";
+	/** Mã tin (listing_id): chuỗi số ngẫu nhiên, không phải khóa chính; cột DB unique, độ dài tối đa 20. */
+	private static final int LISTING_ID_DIGITS = 12;
+	private static final int LISTING_ID_MAX_ATTEMPTS = 20;
 
 	private final VehicleRepository vehicleRepository;
 	private final CategoryRepository categoryRepository;
 	private final SubcategoryRepository subcategoryRepository;
 	private final BranchRepository branchRepository;
-	private final UserRepository userRepository;
+	private final StaffAssignmentRepository staffAssignmentRepository;
 	private final CacheManager cacheManager;
+	private final SecureRandom listingIdRandom = new SecureRandom();
 
 	public VehicleService(VehicleRepository vehicleRepository, CategoryRepository categoryRepository,
-			SubcategoryRepository subcategoryRepository, BranchRepository branchRepository, UserRepository userRepository,
-			CacheManager cacheManager) {
+			SubcategoryRepository subcategoryRepository, BranchRepository branchRepository,
+			StaffAssignmentRepository staffAssignmentRepository, CacheManager cacheManager) {
 		this.vehicleRepository = vehicleRepository;
 		this.categoryRepository = categoryRepository;
 		this.subcategoryRepository = subcategoryRepository;
 		this.branchRepository = branchRepository;
-		this.userRepository = userRepository;
+		this.staffAssignmentRepository = staffAssignmentRepository;
 		this.cacheManager = cacheManager;
 	}
 
 	@Transactional(readOnly = true)
-	public VehicleListResponse listPublic(Integer categoryId, BigDecimal minPrice, BigDecimal maxPrice, int page, int size,
-			String sort) {
+	public VehicleListResponse listPublic(Integer categoryId, Integer subcategoryId, BigDecimal minPrice,
+			BigDecimal maxPrice, Integer yearMin, Integer yearMax, String transmission, Integer branchId, int page,
+			int size, String sort) {
+		String tx = transmission != null && !transmission.isBlank() ? transmission.trim() : null;
 		String sortKey = normalizeListSortKey(sort);
-		// B1: khóa cache gồm cả sort (idDesc | postingDateDesc)
-		String key = buildListCacheKey(categoryId, minPrice, maxPrice, page, size, sortKey);
+		String key = buildListCacheKey(categoryId, subcategoryId, minPrice, maxPrice, yearMin, yearMax, tx, branchId,
+				page, size, sortKey);
 		Cache cache = cacheManager.getCache("vehicleList");
 		if (cache != null) {
 			Cache.ValueWrapper w = cache.get(key);
@@ -84,8 +89,8 @@ public class VehicleService {
 				return (VehicleListResponse) w.get();
 			}
 		}
-		// B2: không có cache → query DB + map DTO
-		VehicleListResponse body = loadListFromDatabase(categoryId, minPrice, maxPrice, page, size, sortKey);
+		VehicleListResponse body = loadListFromDatabase(categoryId, subcategoryId, minPrice, maxPrice, yearMin, yearMax,
+				tx, branchId, page, size, sortKey);
 		if (cache != null) {
 			cache.put(key, body);
 		}
@@ -119,9 +124,9 @@ public class VehicleService {
 		Subcategory sub = loadSubcategoryForCategory(req.getSubcategoryId(), req.getCategoryId());
 		Branch branch = loadBranchAndAssertManager(req.getBranchId(), actorUserId, isAdmin);
 
-		// B2: tạo entity + listing_id + ảnh
+		// B2: tạo entity + listing_id (số ngẫu nhiên duy nhất, khác id khóa chính) + ảnh
 		Vehicle v = new Vehicle();
-		v.setListingId(nextListingId(category, req.getYear()));
+		v.setListingId(nextRandomUniqueListingId());
 		v.setCategory(category);
 		v.setSubcategory(sub);
 		v.setBranch(branch);
@@ -234,35 +239,65 @@ public class VehicleService {
 
 	private static String normalizeListSortKey(String sort) {
 		if (sort == null || sort.isBlank()) {
-			return "idDesc";
+			return "postingDateDesc";
 		}
 		String s = sort.trim();
 		if ("postingDateDesc".equalsIgnoreCase(s) || "posting_date_desc".equalsIgnoreCase(s)) {
 			return "postingDateDesc";
 		}
-		return "idDesc";
+		if ("priceAsc".equalsIgnoreCase(s) || "price_asc".equalsIgnoreCase(s)) {
+			return "priceAsc";
+		}
+		if ("priceDesc".equalsIgnoreCase(s) || "price_desc".equalsIgnoreCase(s)) {
+			return "priceDesc";
+		}
+		if ("yearDesc".equalsIgnoreCase(s) || "year_desc".equalsIgnoreCase(s)) {
+			return "yearDesc";
+		}
+		if ("idDesc".equalsIgnoreCase(s) || "id_desc".equalsIgnoreCase(s)) {
+			return "idDesc";
+		}
+		return "postingDateDesc";
 	}
 
 	private static Sort listSortForPublicList(String sortKey) {
 		if ("postingDateDesc".equals(sortKey)) {
 			return Sort.by(Order.desc("postingDate").with(Sort.NullHandling.NULLS_LAST), Order.desc("id"));
 		}
+		if ("priceAsc".equals(sortKey)) {
+			return Sort.by(Order.asc("price").with(Sort.NullHandling.NULLS_LAST), Order.desc("id"));
+		}
+		if ("priceDesc".equals(sortKey)) {
+			return Sort.by(Order.desc("price").with(Sort.NullHandling.NULLS_LAST), Order.desc("id"));
+		}
+		if ("yearDesc".equals(sortKey)) {
+			return Sort.by(Order.desc("year").with(Sort.NullHandling.NULLS_LAST), Order.desc("id"));
+		}
 		return Sort.by(Order.desc("id"));
 	}
 
-	private static String buildListCacheKey(Integer categoryId, BigDecimal minPrice, BigDecimal maxPrice, int page,
+	private static String buildListCacheKey(Integer categoryId, Integer subcategoryId, BigDecimal minPrice,
+			BigDecimal maxPrice, Integer yearMin, Integer yearMax, String transmission, Integer branchId, int page,
 			int size, String sortKey) {
 		String c = categoryId != null ? String.valueOf(categoryId) : "all";
+		String sub = subcategoryId != null ? String.valueOf(subcategoryId) : "all";
 		String min = minPrice != null ? minPrice.toString() : "x";
 		String max = maxPrice != null ? maxPrice.toString() : "x";
-		return VEHICLE_LIST_CACHE_PREFIX + c + "|" + min + "|" + max + "|" + page + "|" + size + "|" + sortKey;
+		String y1 = yearMin != null ? String.valueOf(yearMin) : "x";
+		String y2 = yearMax != null ? String.valueOf(yearMax) : "x";
+		String tr = transmission != null ? transmission : "x";
+		String br = branchId != null ? String.valueOf(branchId) : "all";
+		return VEHICLE_LIST_CACHE_PREFIX + c + "|" + sub + "|" + min + "|" + max + "|" + y1 + "|" + y2 + "|" + tr + "|"
+				+ br + "|" + page + "|" + size + "|" + sortKey;
 	}
 
-	private VehicleListResponse loadListFromDatabase(Integer categoryId, BigDecimal minPrice, BigDecimal maxPrice,
-			int page, int size, String sortKey) {
+	private VehicleListResponse loadListFromDatabase(Integer categoryId, Integer subcategoryId, BigDecimal minPrice,
+			BigDecimal maxPrice, Integer yearMin, Integer yearMax, String transmission, Integer branchId, int page,
+			int size, String sortKey) {
 		Sort sort = listSortForPublicList(sortKey);
 		PageRequest pr = PageRequest.of(Math.max(0, page), Math.min(100, Math.max(1, size)), sort);
-		Page<Vehicle> p = vehicleRepository.findPublicPage(categoryId, minPrice, maxPrice, pr);
+		Page<Vehicle> p = vehicleRepository.findPublicPage(categoryId, subcategoryId, minPrice, maxPrice, yearMin,
+				yearMax, transmission, branchId, pr);
 		List<VehicleSummaryDto> items = new ArrayList<>();
 		for (Vehicle v : p.getContent()) {
 			items.add(toSummaryDto(v));
@@ -330,9 +365,13 @@ public class VehicleService {
 			return;
 		}
 		User manager = branch.getManager();
-		if (manager == null || !Objects.equals(manager.getId(), actorUserId)) {
-			throw new AccessDeniedException("Chỉ Admin hoặc BranchManager của chi nhánh này được thao tác.");
+		if (manager != null && Objects.equals(manager.getId(), actorUserId)) {
+			return;
 		}
+		if (staffAssignmentRepository.existsByUserIdAndBranchIdAndActiveTrue(actorUserId, branch.getId())) {
+			return;
+		}
+		throw new AccessDeniedException("Chỉ Admin, BranchManager hoặc nhân viên được phân công chi nhánh này được thao tác.");
 	}
 
 	private static void applyImagesFromRequest(Vehicle v, List<VehicleImageWriteDto> dtos) {
@@ -349,61 +388,24 @@ public class VehicleService {
 		}
 	}
 
-	// B1: ghép prefix BRAND+YY — B2: tìm SEQ max — B3: trả mã mới
-	private String nextListingId(Category category, Integer modelYear) {
-		String prefix = buildListingIdPrefix(category, modelYear);
-		int maxSeq = maxSeqForListingPrefix(prefix);
-		int next = maxSeq + 1;
-		if (next > 9999) {
-			throw new IllegalStateException("Hết dải SEQ cho prefix " + prefix);
+	// Sinh chuỗi số ngẫu nhiên (LISTING_ID_DIGITS ký tự), kiểm tra trùng listing_id trong DB — không dùng làm PK.
+	private String nextRandomUniqueListingId() {
+		for (int attempt = 0; attempt < LISTING_ID_MAX_ATTEMPTS; attempt++) {
+			String candidate = randomNumericListingId(LISTING_ID_DIGITS);
+			if (!vehicleRepository.existsByListingId(candidate)) {
+				return candidate;
+			}
 		}
-		return prefix + String.format(Locale.ROOT, "%04d", next);
+		throw new BusinessException(ErrorCode.LISTING_ID_CONFLICT, "Không tạo được mã tin duy nhất, vui lòng thử lại.");
 	}
 
-	private String buildListingIdPrefix(Category category, Integer modelYear) {
-		String brand = brandPrefixFromCategoryName(category.getName());
-		int y = modelYear != null ? modelYear : Year.now(VN).getValue();
-		String yy = String.format(Locale.ROOT, "%02d", y % 100);
-		return brand + yy;
-	}
-
-	private int maxSeqForListingPrefix(String prefix) {
-		List<String> existing = vehicleRepository.findListingIdsByPrefix(prefix);
-		int maxSeq = 0;
-		for (String listingId : existing) {
-			if (listingId.length() < prefix.length() + 4) {
-				continue;
-			}
-			try {
-				int seq = Integer.parseInt(listingId.substring(prefix.length(), prefix.length() + 4));
-				if (seq > maxSeq) {
-					maxSeq = seq;
-				}
-			}
-			catch (NumberFormatException ignored) {
-				// bỏ qua mã không parse được
-			}
+	private String randomNumericListingId(int digits) {
+		StringBuilder sb = new StringBuilder(digits);
+		sb.append(1 + listingIdRandom.nextInt(9));
+		for (int i = 1; i < digits; i++) {
+			sb.append(listingIdRandom.nextInt(10));
 		}
-		return maxSeq;
-	}
-
-	private static String brandPrefixFromCategoryName(String categoryName) {
-		if (categoryName == null || categoryName.isBlank()) {
-			return "XXX";
-		}
-		StringBuilder sb = new StringBuilder();
-		for (char c : categoryName.toCharArray()) {
-			if (Character.isLetter(c)) {
-				sb.append(Character.toUpperCase(c));
-			}
-			if (sb.length() >= 3) {
-				break;
-			}
-		}
-		while (sb.length() < 3) {
-			sb.append('X');
-		}
-		return sb.substring(0, 3);
+		return sb.toString();
 	}
 
 	private static String pickPrimaryImageUrl(Vehicle v) {

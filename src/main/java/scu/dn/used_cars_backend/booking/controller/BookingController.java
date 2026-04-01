@@ -45,9 +45,10 @@ public class BookingController {
 	@GetMapping("/available-slots")
 	public ResponseEntity<ApiResponse<List<AvailableSlotResponse>>> availableSlots(
 			@RequestParam int branchId,
-			@RequestParam String date) {
+			@RequestParam String date,
+			@RequestParam(required = false) Long vehicleId) {
 		LocalDate d = LocalDate.parse(date.trim());
-		List<AvailableSlotResponse> data = slotAvailabilityService.getAvailableSlots(branchId, d);
+		List<AvailableSlotResponse> data = slotAvailabilityService.getAvailableSlots(branchId, d, vehicleId);
 		return ResponseEntity.ok(ApiResponse.success(data));
 	}
 

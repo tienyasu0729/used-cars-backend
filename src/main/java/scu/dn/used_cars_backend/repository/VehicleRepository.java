@@ -17,14 +17,13 @@ import java.util.Optional;
 
 public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 
+	boolean existsByListingId(String listingId);
+
 	boolean existsByIdAndDeletedFalse(Long id);
 
 	@EntityGraph(attributePaths = { "images" })
 	@Query("select v from Vehicle v where v.id in :ids")
 	List<Vehicle> findAllByIdInWithImages(@Param("ids") Collection<Long> ids);
-
-	@Query("select v.listingId from Vehicle v where v.listingId like concat(:prefix, '%')")
-	List<String> findListingIdsByPrefix(@Param("prefix") String prefix);
 
 	@EntityGraph(attributePaths = { "category", "subcategory", "branch", "images" })
 	@Query("""
@@ -32,11 +31,23 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 			where v.deleted = false
 			and v.status <> 'Hidden'
 			and (:categoryId is null or v.category.id = :categoryId)
+			and (:subcategoryId is null or v.subcategory.id = :subcategoryId)
 			and (:minPrice is null or (v.price is not null and v.price >= :minPrice))
 			and (:maxPrice is null or (v.price is not null and v.price <= :maxPrice))
+			and (:yearMin is null or (v.year is not null and v.year >= :yearMin))
+			and (:yearMax is null or (v.year is not null and v.year <= :yearMax))
+			and (:transmission is null or v.transmission = :transmission)
+			and (:branchId is null or v.branch.id = :branchId)
 			""")
-	Page<Vehicle> findPublicPage(@Param("categoryId") Integer categoryId, @Param("minPrice") java.math.BigDecimal minPrice,
-			@Param("maxPrice") java.math.BigDecimal maxPrice, Pageable pageable);
+	Page<Vehicle> findPublicPage(@Param("categoryId") Integer categoryId,
+			@Param("subcategoryId") Integer subcategoryId,
+			@Param("minPrice") java.math.BigDecimal minPrice,
+			@Param("maxPrice") java.math.BigDecimal maxPrice,
+			@Param("yearMin") Integer yearMin,
+			@Param("yearMax") Integer yearMax,
+			@Param("transmission") String transmission,
+			@Param("branchId") Integer branchId,
+			Pageable pageable);
 
 	@EntityGraph(attributePaths = { "category", "subcategory", "branch", "branch.manager", "images" })
 	@Query("select v from Vehicle v where v.id = :id and v.deleted = false and v.status <> 'Hidden'")

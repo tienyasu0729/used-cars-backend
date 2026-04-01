@@ -1,28 +1,19 @@
-package scu.dn.used_cars_backend.dto.auth;
+package scu.dn.used_cars_backend.dto.branch;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDate;
-
+/** Thông tin hiển thị công khai trên trang chi nhánh (không email). */
 @Data
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
-public class UserProfileDto {
+public class BranchTeamMemberDto {
 
-	private Long id;
 	private String name;
-	private String email;
-	private String phone;
-	private String address;
 	private String role;
-	private Integer branchId;
 	/** URL tương đối (vd. /uploads/avatars/1.jpg) hoặc null. */
 	private String avatarUrl;
-	private LocalDate dateOfBirth;
-	/** male | female | other */
-	private String gender;
 }

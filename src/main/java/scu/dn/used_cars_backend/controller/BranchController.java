@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import scu.dn.used_cars_backend.common.api.ApiResponse;
 import scu.dn.used_cars_backend.dto.branch.BranchPublicDto;
+import scu.dn.used_cars_backend.dto.branch.BranchTeamMemberDto;
 import scu.dn.used_cars_backend.service.BranchService;
 
 import java.util.List;
@@ -28,6 +29,11 @@ public class BranchController {
 	@GetMapping("/{id}")
 	public ResponseEntity<ApiResponse<BranchPublicDto>> detail(@PathVariable int id) {
 		return ResponseEntity.ok(ApiResponse.success(branchService.getPublicById(id)));
+	}
+
+	@GetMapping("/{id}/team")
+	public ResponseEntity<ApiResponse<List<BranchTeamMemberDto>>> team(@PathVariable int id) {
+		return ResponseEntity.ok(ApiResponse.success(branchService.listPublicTeam(id)));
 	}
 
 }

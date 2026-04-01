@@ -9,12 +9,15 @@ import scu.dn.used_cars_backend.common.exception.BusinessException;
 import scu.dn.used_cars_backend.common.exception.ErrorCode;
 import scu.dn.used_cars_backend.dto.CustomerStatsResponse;
 import scu.dn.used_cars_backend.dto.UpdateProfileRequest;
+import scu.dn.used_cars_backend.dto.auth.UserProfileDto;
 import scu.dn.used_cars_backend.entity.User;
+import scu.dn.used_cars_backend.repository.StaffAssignmentRepository;
 import scu.dn.used_cars_backend.repository.UserRepository;
 import scu.dn.used_cars_backend.interaction.repository.SavedVehicleRepository;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.Locale;
 
 // Hồ sơ người dùng: cập nhật tên/SĐT, avatar, thống kê dashboard khách.
@@ -23,35 +26,55 @@ import java.util.Locale;
 public class UserService {
 
 	private static final long MAX_AVATAR_BYTES = 2 * 1024 * 1024;
-	private static final String VN_PHONE_REGEX = "^0[0-9]{9}$";
+	private static final String CUSTOMER_ROLE = "Customer";
 
 	private final UserRepository userRepository;
+	private final StaffAssignmentRepository staffAssignmentRepository;
 	private final SavedVehicleRepository savedVehicleRepository;
 	private final BookingRepository bookingRepository;
 
 	@Transactional
 	public void updateProfile(long userId, UpdateProfileRequest request) {
-		// B1: Tải user hợp lệ
 		User user = loadActiveUser(userId);
-		// B2: Gán tên + SĐT (trim + regex khi có SĐT)
-		user.setName(request.getName().trim());
-		String phone = request.getPhone();
-		if (phone == null || phone.isBlank()) {
-			user.setPhone(null);
-		}
-		else {
-			String p = phone.trim();
-			if (!p.matches(VN_PHONE_REGEX)) {
-				throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-						"Số điện thoại phải có 10 chữ số bắt đầu bằng 0.");
-			}
-			user.setPhone(p);
-		}
-		// B3: Địa chỉ (nullable, trim)
-		String addr = request.getAddress();
-		user.setAddress(addr == null || addr.isBlank() ? null : addr.trim());
-		// B4: Lưu
+		// Đã strip + chuẩn hoá SĐT + validate trong UpdateProfileRequest (Bean Validation)
+		user.setName(request.name());
+		user.setPhone(request.phone());
+		user.setAddress(request.address());
+		user.setDateOfBirth(request.dateOfBirth());
+		user.setGender(request.gender());
 		userRepository.save(user);
+	}
+
+	@Transactional(readOnly = true)
+	public UserProfileDto getMeProfile(long userId) {
+		User user = userRepository.findActiveByIdWithRoles(userId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "Không tìm thấy người dùng."));
+		if (!"active".equalsIgnoreCase(user.getStatus())) {
+			throw new BusinessException(ErrorCode.ACCOUNT_SUSPENDED, "Tài khoản bị khóa.");
+		}
+		String roleName = resolvePrimaryRoleName(user);
+		UserProfileDto.UserProfileDtoBuilder b = UserProfileDto.builder()
+				.id(user.getId())
+				.name(user.getName())
+				.email(user.getEmail())
+				.phone(user.getPhone())
+				.address(user.getAddress())
+				.avatarUrl(user.getAvatarUrl())
+				.dateOfBirth(user.getDateOfBirth())
+				.gender(user.getGender())
+				.role(roleName);
+		if ("BranchManager".equals(roleName) || "SalesStaff".equals(roleName)) {
+			staffAssignmentRepository.findFirstByUserIdAndActiveTrueOrderByIdDesc(user.getId())
+					.ifPresent(a -> b.branchId(a.getBranchId()));
+		}
+		return b.build();
+	}
+
+	private static String resolvePrimaryRoleName(User user) {
+		return user.getUserRoles().stream()
+				.min(Comparator.comparingInt(ur -> ur.getRole().getId()))
+				.map(ur -> ur.getRole().getName())
+				.orElse(CUSTOMER_ROLE);
 	}
 
 	@Transactional

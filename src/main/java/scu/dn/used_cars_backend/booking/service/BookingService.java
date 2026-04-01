@@ -77,6 +77,13 @@ public class BookingService {
 			throw new BusinessException(ErrorCode.SLOT_FULLY_BOOKED, "Giờ này đã đầy, vui lòng chọn giờ khác.");
 		}
 
+		long vehicleTaken = bookingRepository.countAtVehicleSlot(vehicle.getId(), bookingDate, timeSlot,
+				SLOT_COUNT_STATUSES);
+		if (vehicleTaken > 0) {
+			throw new BusinessException(ErrorCode.SLOT_FULLY_BOOKED,
+					"Xe này đã có lịch hẹn trong khung giờ này. Vui lòng chọn giờ khác.");
+		}
+
 		Booking booking = new Booking();
 		booking.setCustomerId(customerId);
 		booking.setVehicle(vehicle);
@@ -192,6 +199,13 @@ public class BookingService {
 		int max = lockedSlot.getMaxBookings() != null ? lockedSlot.getMaxBookings() : 0;
 		if (taken >= max) {
 			throw new BusinessException(ErrorCode.SLOT_FULLY_BOOKED, "Khung giờ mới đã đầy.");
+		}
+
+		long vehicleTaken = bookingRepository.countAtVehicleSlotExcluding(b.getVehicle().getId(), newDate, newTime,
+				SLOT_COUNT_STATUSES, b.getId());
+		if (vehicleTaken > 0) {
+			throw new BusinessException(ErrorCode.SLOT_FULLY_BOOKED,
+					"Xe đã có lịch hẹn khác trong khung giờ mới này.");
 		}
 
 		String old = b.getStatus();

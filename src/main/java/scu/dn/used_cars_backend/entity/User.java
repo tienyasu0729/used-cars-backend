@@ -8,6 +8,7 @@ import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.time.LocalDate;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -41,6 +42,12 @@ public class User extends BaseEntity {
 	// Địa chỉ liên hệ / nơi ở — cột address (NVARCHAR 500).
 	@Column(length = 500)
 	private String address;
+
+	@Column(name = "date_of_birth")
+	private LocalDate dateOfBirth;
+
+	@Column(length = 20)
+	private String gender;
 
 	@Column(nullable = false, length = 20)
 	private String status = "active";

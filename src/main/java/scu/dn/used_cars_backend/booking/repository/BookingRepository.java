@@ -60,6 +60,28 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 			@Param("time") LocalTime time, @Param("statuses") Collection<String> statuses,
 			@Param("excludeId") long excludeId);
 
+	@Query("""
+			select count(b) from Booking b
+			where b.vehicle.id = :vehicleId
+			and b.bookingDate = :date
+			and b.timeSlot = :time
+			and b.status in :statuses
+			""")
+	long countAtVehicleSlot(@Param("vehicleId") long vehicleId, @Param("date") LocalDate date,
+			@Param("time") LocalTime time, @Param("statuses") Collection<String> statuses);
+
+	@Query("""
+			select count(b) from Booking b
+			where b.vehicle.id = :vehicleId
+			and b.bookingDate = :date
+			and b.timeSlot = :time
+			and b.status in :statuses
+			and b.id <> :excludeId
+			""")
+	long countAtVehicleSlotExcluding(@Param("vehicleId") long vehicleId, @Param("date") LocalDate date,
+			@Param("time") LocalTime time, @Param("statuses") Collection<String> statuses,
+			@Param("excludeId") long excludeId);
+
 	@EntityGraph(attributePaths = { "vehicle", "vehicle.category", "vehicle.subcategory", "branch" })
 	@Query("""
 			select b from Booking b

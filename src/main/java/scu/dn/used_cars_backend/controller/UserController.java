@@ -18,6 +18,7 @@ import scu.dn.used_cars_backend.common.exception.BusinessException;
 import scu.dn.used_cars_backend.common.exception.ErrorCode;
 import scu.dn.used_cars_backend.dto.CustomerStatsResponse;
 import scu.dn.used_cars_backend.dto.UpdateProfileRequest;
+import scu.dn.used_cars_backend.dto.auth.UserProfileDto;
 import scu.dn.used_cars_backend.security.AuthenticationDetailsUtils;
 import scu.dn.used_cars_backend.service.UserService;
 
@@ -32,15 +33,18 @@ public class UserController {
 
 	private final UserService userService;
 
+	@GetMapping("/me")
+	public ResponseEntity<ApiResponse<UserProfileDto>> getMe(Authentication authentication) {
+		long userId = AuthenticationDetailsUtils.requireUserId(authentication);
+		return ResponseEntity.ok(ApiResponse.success(userService.getMeProfile(userId)));
+	}
+
 	@PutMapping("/me")
-	public ResponseEntity<ApiResponse<Map<String, Object>>> updateMe(@Valid @RequestBody UpdateProfileRequest body,
+	public ResponseEntity<ApiResponse<UserProfileDto>> updateMe(@Valid @RequestBody UpdateProfileRequest body,
 			Authentication authentication) {
 		long userId = AuthenticationDetailsUtils.requireUserId(authentication);
 		userService.updateProfile(userId, body);
-		Map<String, Object> data = new LinkedHashMap<>();
-		data.put("success", true);
-		data.put("message", "Thông tin cá nhân đã cập nhật.");
-		return ResponseEntity.ok(ApiResponse.success(data));
+		return ResponseEntity.ok(ApiResponse.success(userService.getMeProfile(userId)));
 	}
 
 	@PostMapping("/me/avatar")

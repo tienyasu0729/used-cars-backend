@@ -84,7 +84,18 @@ public class GlobalExceptionHandler {
 	@ExceptionHandler(DataIntegrityViolationException.class)
 	public ResponseEntity<ApiErrorResponse> handleDataIntegrity(DataIntegrityViolationException ex,
 			HttpServletRequest request) {
-		log.warn("Data integrity violation: {}", ex.getMostSpecificCause().getMessage());
+		String causeMsg = ex.getMostSpecificCause().getMessage();
+		log.warn("Data integrity violation: {}", causeMsg);
+		if (causeMsg != null && causeMsg.contains("UQ_Bookings_VehicleSlot")) {
+			ApiErrorResponse body = ApiErrorResponse.builder()
+					.timestamp(Instant.now())
+					.status(ErrorCode.SLOT_FULLY_BOOKED.getHttpStatus().value())
+					.errorCode(ErrorCode.SLOT_FULLY_BOOKED.getCode())
+					.message("Xe này đã có lịch hẹn trong khung giờ này. Vui lòng chọn giờ khác.")
+					.path(request.getRequestURI())
+					.build();
+			return ResponseEntity.status(ErrorCode.SLOT_FULLY_BOOKED.getHttpStatus()).body(body);
+		}
 		ApiErrorResponse body = ApiErrorResponse.builder()
 				.timestamp(Instant.now())
 				.status(ErrorCode.LISTING_ID_CONFLICT.getHttpStatus().value())
@@ -130,7 +141,7 @@ public class GlobalExceptionHandler {
 			case FORBIDDEN -> "Không có quyền truy cập.";
 			case INVALID_CREDENTIALS -> "Sai email hoặc mật khẩu.";
 			case INVALID_CURRENT_PASSWORD -> "Mật khẩu hiện tại không đúng.";
-			case PASSWORD_TOO_SHORT -> "Mật khẩu mới tối thiểu 6 ký tự.";
+			case PASSWORD_TOO_SHORT -> "Mật khẩu từ 8 đến 100 ký tự.";
 			case USER_NOT_FOUND -> "Không tìm thấy người dùng.";
 			case ACCOUNT_SUSPENDED -> "Tài khoản bị khóa.";
 			case VALIDATION_FAILED -> "Dữ liệu không hợp lệ.";
@@ -156,6 +167,11 @@ public class GlobalExceptionHandler {
 			case TRANSFER_ALREADY_EXISTS -> "Đã có yêu cầu điều chuyển cho xe này.";
 			case INVALID_TRANSFER_STATUS -> "Trạng thái điều chuyển không hợp lệ.";
 			case TRANSFER_ACCESS_DENIED -> "Không có quyền truy cập yêu cầu điều chuyển này.";
+			case STAFF_NOT_FOUND -> "Không tìm thấy nhân viên.";
+			case STAFF_EMAIL_EXISTS -> "Email đã được sử dụng.";
+			case STAFF_PHONE_EXISTS -> "Số điện thoại đã được sử dụng.";
+			case STAFF_NOT_IN_BRANCH -> "Nhân viên không thuộc chi nhánh của bạn.";
+			case STAFF_PEER_EDIT_FORBIDDEN -> "Không thể chỉnh sửa nhân sự cùng vai trò với bạn.";
 		};
 	}
 }

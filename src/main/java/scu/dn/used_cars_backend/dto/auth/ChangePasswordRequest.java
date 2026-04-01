@@ -4,7 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
-// Đổi mật khẩu: mật khẩu mới kiểm tra độ dài tối thiểu trong service (ErrorCode PASSWORD_TOO_SHORT).
+// Đổi mật khẩu: quy tắc độ dài mật mới khớp RegisterRequest.password (8–100 ký tự).
 @Data
 public class ChangePasswordRequest {
 
@@ -12,6 +12,6 @@ public class ChangePasswordRequest {
 	private String currentPassword;
 
 	@NotBlank(message = "Mật khẩu mới không được để trống.")
-	@Size(max = 100, message = "Mật khẩu mới tối đa 100 ký tự.")
+	@Size(min = 8, max = 100, message = "Mật khẩu từ 8 đến 100 ký tự.")
 	private String newPassword;
 }

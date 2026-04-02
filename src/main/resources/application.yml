@@ -1,54 +1,57 @@
 spring:
   application:
     name: used-cars-backend
-  # File cục bộ (gitignored): đặt cloud-name / api-key / api-secret tại đây hoặc dùng biến môi trường.
+
+  # application-local.yml (gitignored): DB, Redis, JWT, Cloudinary, port — copy máy khác khi cần.
+  # Có thể ghi đè bằng biến môi trường: DB_URL, DB_USER, DB_PASSWORD, REDIS_*, SERVER_PORT, JWT_*, CLOUDINARY_*.
   config:
     import: optional:classpath:application-local.yml
+
   servlet:
     multipart:
       max-file-size: 2MB
       max-request-size: 3MB
+
   datasource:
-    # JDBC KHÔNG dùng kiểu SSMS "HOST\INSTANCE". Dùng "host:port" để bỏ qua SQL Browser (UDP 1434).
-    # Nếu để instanceName mà không ghi port → driver hỏi Browser → timeout nếu Browser tắt / firewall chặn 1434.
-    # Named instance nhưng TCP cố định 1433: vẫn dùng jdbc:sqlserver://localhost:1433;...
-    url: ${DB_URL:jdbc:sqlserver://localhost:1433;databaseName=usedCars;encrypt=false;trustServerCertificate=true;sendTimeAsDatetime=false}
-    username: ${DB_USER:sa}
-    password: ${DB_PASSWORD:123456}
     driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+    # JDBC: không dùng "HOST\INSTANCE" (SSMS); dùng host:port để tránh SQL Browser (UDP 1434) timeout/firewall.
+    url: ${DB_URL:}
+    username: ${DB_USER:}
+    password: ${DB_PASSWORD:}
+
   jpa:
     hibernate:
       ddl-auto: validate
       naming:
-        # Giu dung ten bang/cot nhu @Table (Users, Permissions, ...) — tranh bi doi thanh chu thuong [permissions] khi validate
         physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
     open-in-view: false
     properties:
-      # Hibernate 6 + Instant: canh bao datetimeoffset vs DATETIME2 trong DB — dung TIMESTAMP (datetime2)
       hibernate.type.preferred_instant_jdbc_type: TIMESTAMP
       hibernate:
         dialect: org.hibernate.dialect.SQLServerDialect
         format_sql: true
+
   data:
     redis:
-      host: ${REDIS_HOST:localhost}
+      host: ${REDIS_HOST:}
       port: ${REDIS_PORT:6379}
       timeout: 2000ms
+
   flyway:
     enabled: true
     locations: classpath:db/migration
-    # DB da co bang (tao tay) nhung chua co flyway_schema_history -> bat de Flyway tao baseline, khong bat buoc chay lai V1__...
     baseline-on-migrate: true
+
 server:
   port: ${SERVER_PORT:8080}
 
 app:
   jwt:
-    secret: ${JWT_SECRET:defaultDevSecretKeyMustBe256BitsLongForHS256AlgorithmSecurityDevOnly!!}
+    secret: ${JWT_SECRET:}
     expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+
   cloudinary:
-    # Upload qua Cloudinary SDK (ký server-side). Bắt buộc đủ 3 giá trị — không dùng upload preset.
-    # Gán qua biến môi trường hoặc application-local.yml (gitignored).
+    # Upload ký server-side; đủ 3 giá trị mới bật — xem application-local.yml hoặc CLOUDINARY_*.
     cloud-name: ${CLOUDINARY_CLOUD_NAME:}
     api-key: ${CLOUDINARY_API_KEY:}
     api-secret: ${CLOUDINARY_API_SECRET:}

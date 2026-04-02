@@ -20,7 +20,7 @@ public class UserProfileDto {
 	private String address;
 	private String role;
 	private Integer branchId;
-	/** URL tương đối (vd. /uploads/avatars/1.jpg) hoặc null. */
+	/** URL ảnh đại diện (Cloudinary secure_url hoặc URL tuyệt đối khác) hoặc null. */
 	private String avatarUrl;
 	private LocalDate dateOfBirth;
 	/** male | female | other */

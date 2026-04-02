@@ -172,6 +172,8 @@ public class GlobalExceptionHandler {
 			case STAFF_PHONE_EXISTS -> "Số điện thoại đã được sử dụng.";
 			case STAFF_NOT_IN_BRANCH -> "Nhân viên không thuộc chi nhánh của bạn.";
 			case STAFF_PEER_EDIT_FORBIDDEN -> "Không thể chỉnh sửa nhân sự cùng vai trò với bạn.";
+			case MEDIA_UPLOAD_NOT_CONFIGURED -> "Máy chủ chưa bật upload ảnh (Cloudinary).";
+			case CLOUDINARY_URL_INVALID -> "URL ảnh Cloudinary không hợp lệ hoặc không khớp quyền upload.";
 		};
 	}
 }

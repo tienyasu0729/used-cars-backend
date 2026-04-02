@@ -17,10 +17,7 @@ import scu.dn.used_cars_backend.repository.StaffAssignmentRepository;
 import scu.dn.used_cars_backend.repository.UserRepository;
 import scu.dn.used_cars_backend.interaction.repository.SavedVehicleRepository;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Comparator;
-import java.util.Locale;
 import java.util.Optional;
 
 // Hồ sơ người dùng: cập nhật tên/SĐT, avatar, thống kê dashboard khách.
@@ -28,7 +25,6 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class UserService {
 
-	private static final long MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 	private static final String CUSTOMER_ROLE = "Customer";
 
 	private final UserRepository userRepository;
@@ -36,6 +32,7 @@ public class UserService {
 	private final BranchRepository branchRepository;
 	private final SavedVehicleRepository savedVehicleRepository;
 	private final BookingRepository bookingRepository;
+	private final CloudinaryUploadService cloudinaryUploadService;
 
 	@Transactional
 	public void updateProfile(long userId, UpdateProfileRequest request) {
@@ -95,29 +92,15 @@ public class UserService {
 	}
 
 	@Transactional
-	public String saveAvatar(long userId, byte[] fileBytes, String contentType) {
-		// B1: Kiểu file + kích thước
-		String ext = resolveImageExtension(contentType);
-		if (fileBytes.length > MAX_AVATAR_BYTES) {
-			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Ảnh tối đa 2MB.");
-		}
-		// B2: Ghi đĩa
-		Path dir = Path.of("uploads", "avatars");
-		try {
-			Files.createDirectories(dir);
-			Path target = Path.of("uploads", "avatars", userId + "." + ext);
-			Files.write(target, fileBytes);
-		}
-		catch (java.io.IOException e) {
-			throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "Không lưu được file avatar.");
-		}
-		String relative = "/uploads/avatars/" + userId + "." + ext;
-		// B3: Cập nhật DB
+	public String saveAvatarFromCloudinaryUrl(long userId, String secureUrl) {
+		// B1: Xác thực URL do client upload trực tiếp (đúng cloud / folder / user)
+		cloudinaryUploadService.assertSecureUrlMatchesSignedContext(secureUrl, MediaUploadContext.AVATAR, userId);
+		// B2: Cập nhật DB
 		User user = loadActiveUser(userId);
-		user.setAvatarUrl(relative);
+		user.setAvatarUrl(secureUrl.trim());
 		userRepository.save(user);
-		// B4: Trả URL client
-		return relative;
+		// B3: Trả URL client
+		return user.getAvatarUrl();
 	}
 
 	@Transactional(readOnly = true)
@@ -126,7 +109,7 @@ public class UserService {
 		long saved = savedVehicleRepository.countByIdUserId(userId);
 		// B2: Lịch Pending/Confirmed
 		long upcoming = bookingRepository.countUpcomingByCustomerId(userId);
-		// B3–B4: Tier 4 tạm cố định 0
+		// TODO: Will be implemented in later sprint (Tier 4 — activeDeposits / totalOrders từ DB thật)
 		return CustomerStatsResponse.builder()
 				.savedVehicles(saved)
 				.upcomingBookings(upcoming)
@@ -144,17 +127,4 @@ public class UserService {
 		return user;
 	}
 
-	private static String resolveImageExtension(String contentType) {
-		if (contentType == null) {
-			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Thiếu loại file ảnh.");
-		}
-		String ct = contentType.toLowerCase(Locale.ROOT);
-		if (ct.contains("jpeg") || ct.contains("jpg")) {
-			return "jpg";
-		}
-		if (ct.contains("png")) {
-			return "png";
-		}
-		throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Chỉ chấp nhận JPG hoặc PNG.");
-	}
 }

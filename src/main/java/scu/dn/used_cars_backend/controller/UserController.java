@@ -9,30 +9,38 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.multipart.MultipartFile;
 
 import scu.dn.used_cars_backend.common.api.ApiResponse;
-import scu.dn.used_cars_backend.common.exception.BusinessException;
-import scu.dn.used_cars_backend.common.exception.ErrorCode;
 import scu.dn.used_cars_backend.dto.CustomerStatsResponse;
 import scu.dn.used_cars_backend.dto.UpdateProfileRequest;
 import scu.dn.used_cars_backend.dto.auth.UserProfileDto;
+import scu.dn.used_cars_backend.dto.media.CloudinarySignedUploadDto;
+import scu.dn.used_cars_backend.dto.user.AvatarUploadResponse;
+import scu.dn.used_cars_backend.dto.user.SaveAvatarUrlRequest;
 import scu.dn.used_cars_backend.security.AuthenticationDetailsUtils;
+import scu.dn.used_cars_backend.service.CloudinaryUploadService;
+import scu.dn.used_cars_backend.service.MediaUploadContext;
 import scu.dn.used_cars_backend.service.UserService;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
-
-// API hồ sơ user đăng nhập: cập nhật thông tin, avatar, thống kê dashboard.
+/**
+ * Hồ sơ người dùng đăng nhập.
+ * <p>
+ * <strong>PUT /me</strong> trả {@link ApiResponse}{@code <}{@link UserProfileDto}{@code >} (toàn bộ profile sau cập nhật),
+ * thay cho ví dụ {@code Map} chỉ có message trong prompt Sprint 1 — FE đọc trực tiếp {@code data}, không cần GET lại.
+ * <p>
+ * <strong>Avatar:</strong> dùng Cloudinary direct upload (giảm tải server, CDN sẵn có). Khác spec gốc
+ * {@code POST + MultipartFile} lưu {@code uploads/avatars}; không đổi flow để không phá FE đã tích hợp.
+ */
 @RestController
 @RequestMapping("/api/v1/users")
 @RequiredArgsConstructor
 public class UserController {
 
 	private final UserService userService;
+	private final CloudinaryUploadService cloudinaryUploadService;
 
+	/** {@code GET} — profile đầy đủ; cùng shape với {@link #updateMe}. */
 	@GetMapping("/me")
 	public ResponseEntity<ApiResponse<UserProfileDto>> getMe(Authentication authentication) {
 		long userId = AuthenticationDetailsUtils.requireUserId(authentication);
@@ -47,24 +55,27 @@ public class UserController {
 		return ResponseEntity.ok(ApiResponse.success(userService.getMeProfile(userId)));
 	}
 
-	@PostMapping("/me/avatar")
-	public ResponseEntity<ApiResponse<Map<String, String>>> uploadAvatar(@RequestParam("avatar") MultipartFile avatar,
+	/**
+	 * Bước 1 — ký upload Cloudinary (file không đi qua backend).
+	 * Spec Sprint 1 gốc: multipart tới server; triển khai thực tế: direct upload + {@link #saveAvatarUrl}.
+	 */
+	@GetMapping("/me/avatar/upload-signature")
+	public ResponseEntity<ApiResponse<CloudinarySignedUploadDto>> avatarUploadSignature(Authentication authentication) {
+		long userId = AuthenticationDetailsUtils.requireUserId(authentication);
+		return ResponseEntity.ok(ApiResponse.success(
+				cloudinaryUploadService.buildSignedDirectUpload(MediaUploadContext.AVATAR, userId)));
+	}
+
+	/**
+	 * Bước 2 — lưu {@code secure_url} sau khi client đã POST file lên Cloudinary.
+	 * Response: {@code ApiResponse<AvatarUploadResponse>} (thay {@code Map} — cùng JSON field {@code avatarUrl}, FE không đổi).
+	 */
+	@PutMapping("/me/avatar")
+	public ResponseEntity<ApiResponse<AvatarUploadResponse>> saveAvatarUrl(@Valid @RequestBody SaveAvatarUrlRequest body,
 			Authentication authentication) {
 		long userId = AuthenticationDetailsUtils.requireUserId(authentication);
-		if (avatar == null || avatar.isEmpty()) {
-			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Vui lòng chọn file ảnh.");
-		}
-		byte[] bytes;
-		try {
-			bytes = avatar.getBytes();
-		}
-		catch (Exception e) {
-			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Không đọc được file ảnh.");
-		}
-		String url = userService.saveAvatar(userId, bytes, avatar.getContentType());
-		Map<String, String> data = new LinkedHashMap<>();
-		data.put("avatarUrl", url);
-		return ResponseEntity.ok(ApiResponse.success(data));
+		String url = userService.saveAvatarFromCloudinaryUrl(userId, body.avatarUrl());
+		return ResponseEntity.ok(ApiResponse.success(AvatarUploadResponse.builder().avatarUrl(url).build()));
 	}
 
 	@GetMapping("/me/stats")

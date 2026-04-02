@@ -37,6 +37,10 @@ public class Branch {
 	@Column(length = 20)
 	private String phone;
 
+	/** JSON mảng URL ảnh showroom (NVARCHAR MAX). */
+	@Column(name = "showroom_image_urls", columnDefinition = "NVARCHAR(MAX)")
+	private String showroomImageUrlsJson;
+
 	@Column(precision = 10, scale = 7)
 	private BigDecimal lat;
 

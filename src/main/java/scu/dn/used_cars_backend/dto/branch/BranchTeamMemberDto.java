@@ -14,6 +14,6 @@ public class BranchTeamMemberDto {
 
 	private String name;
 	private String role;
-	/** URL tương đối (vd. /uploads/avatars/1.jpg) hoặc null. */
+	/** URL ảnh đại diện (Cloudinary hoặc URL tuyệt đối) hoặc null. */
 	private String avatarUrl;
 }

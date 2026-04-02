@@ -34,9 +34,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 			new AntPathRequestMatcher("/api/v1/auth/login", "POST"),
 			new AntPathRequestMatcher("/api/v1/auth/register", "POST"));
 
-	/** Ảnh avatar phục vụ công khai (không JWT). */
-	private static final RequestMatcher PUBLIC_UPLOADS = new AntPathRequestMatcher("/uploads/**", "GET");
-
 	/** Guest: xem catalog + chi nhánh + danh sách/chi tiết xe công khai (không JWT). */
 	private static final RequestMatcher PUBLIC_READ_CATALOG_AND_VEHICLES = new OrRequestMatcher(
 			new AntPathRequestMatcher("/api/v1/catalog/**", "GET"),
@@ -55,8 +52,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
 	@Override
 	protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
-		return PUBLIC_AUTH.matches(request) || PUBLIC_READ_CATALOG_AND_VEHICLES.matches(request)
-				|| PUBLIC_UPLOADS.matches(request);
+		return PUBLIC_AUTH.matches(request) || PUBLIC_READ_CATALOG_AND_VEHICLES.matches(request);
 	}
 
 	@Override

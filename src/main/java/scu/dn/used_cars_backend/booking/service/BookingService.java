@@ -24,6 +24,7 @@ import scu.dn.used_cars_backend.common.exception.BusinessException;
 import scu.dn.used_cars_backend.common.exception.ErrorCode;
 import scu.dn.used_cars_backend.entity.Branch;
 import scu.dn.used_cars_backend.entity.Vehicle;
+import scu.dn.used_cars_backend.entity.VehicleStatus;
 import scu.dn.used_cars_backend.repository.BranchRepository;
 import scu.dn.used_cars_backend.repository.VehicleRepository;
 
@@ -57,7 +58,8 @@ public class BookingService {
 		Branch branch = branchRepository.findByIdAndDeletedFalse(branchId)
 				.orElseThrow(() -> new BusinessException(ErrorCode.BRANCH_NOT_FOUND, "Không tìm thấy chi nhánh."));
 
-		Vehicle vehicle = vehicleRepository.findAvailableForBooking(request.getVehicleId())
+		Vehicle vehicle = vehicleRepository.findAvailableForBooking(request.getVehicleId(),
+						VehicleStatus.AVAILABLE.getDbValue())
 				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_AVAILABLE, "Xe này hiện không thể đặt lịch."));
 		if (vehicle.getBranch() == null || vehicle.getBranch().getId() == null
 				|| vehicle.getBranch().getId() != branchId) {

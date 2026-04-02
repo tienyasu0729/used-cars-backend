@@ -6,6 +6,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 
 /** Dữ liệu chi nhánh trả về client công khai (không lộ manager nội bộ). */
 @Data
@@ -20,5 +22,13 @@ public class BranchPublicDto {
 	private String phone;
 	private BigDecimal lat;
 	private BigDecimal lng;
+
+	/** Ảnh showroom (URL đã lưu từ cài đặt chi nhánh). */
+	@Builder.Default
+	private List<String> showroomImageUrls = new ArrayList<>();
+
+	/** Giờ theo từng thứ (đủ 7 phần tử). */
+	@Builder.Default
+	private List<BranchPublicScheduleDto> workingHours = new ArrayList<>();
 
 }

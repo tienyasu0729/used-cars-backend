@@ -98,4 +98,31 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 			and b.status in ('Pending', 'Confirmed')
 			""")
 	long countUpcomingByCustomerId(@Param("userId") long userId);
+
+	/** KPI dashboard: lịch hẹn trong ngày tại chi nhánh (không tính đã hủy). */
+	@Query("""
+			select count(b) from Booking b
+			where b.branch.id = :branchId
+			and b.bookingDate = :date
+			and b.status <> 'Cancelled'
+			""")
+	long countTodayAtBranchExcludingCancelled(@Param("branchId") int branchId, @Param("date") LocalDate date);
+
+	/** KPI dashboard: lịch hẹn trạng thái Pending tại chi nhánh (chờ xử lý / xác nhận). */
+	@Query("""
+			select count(b) from Booking b
+			where b.branch.id = :branchId
+			and b.status = 'Pending'
+			""")
+	long countPendingAtBranch(@Param("branchId") int branchId);
+
+	/** KPI dashboard: lịch trong khoảng ngày [start, end] đóng tại chi nhánh (không tính đã hủy). */
+	@Query("""
+			select count(b) from Booking b
+			where b.branch.id = :branchId
+			and b.bookingDate between :start and :end
+			and b.status <> 'Cancelled'
+			""")
+	long countBetweenDatesAtBranchExcludingCancelled(@Param("branchId") int branchId, @Param("start") LocalDate start,
+			@Param("end") LocalDate end);
 }

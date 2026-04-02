@@ -15,7 +15,11 @@ import java.util.Optional;
 
 public interface BookingSlotRepository extends JpaRepository<BookingSlot, Integer> {
 
+	List<BookingSlot> findByBranch_IdOrderBySlotTimeAsc(int branchId);
+
 	List<BookingSlot> findByBranch_IdAndActiveTrueOrderBySlotTimeAsc(int branchId);
+
+	Optional<BookingSlot> findByBranch_IdAndSlotTime(int branchId, LocalTime slotTime);
 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select s from BookingSlot s where s.branch.id = :branchId and s.slotTime = :slotTime and s.active = true")

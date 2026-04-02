@@ -47,7 +47,12 @@ public enum ErrorCode {
 	STAFF_EMAIL_EXISTS(HttpStatus.CONFLICT, "STAFF_EMAIL_EXISTS"),
 	STAFF_PHONE_EXISTS(HttpStatus.CONFLICT, "STAFF_PHONE_EXISTS"),
 	STAFF_NOT_IN_BRANCH(HttpStatus.FORBIDDEN, "STAFF_NOT_IN_BRANCH"),
-	STAFF_PEER_EDIT_FORBIDDEN(HttpStatus.FORBIDDEN, "STAFF_PEER_EDIT_FORBIDDEN");
+	STAFF_PEER_EDIT_FORBIDDEN(HttpStatus.FORBIDDEN, "STAFF_PEER_EDIT_FORBIDDEN"),
+
+	/** Upload ảnh qua Cloudinary chưa cấu hình trên máy chủ */
+	MEDIA_UPLOAD_NOT_CONFIGURED(HttpStatus.SERVICE_UNAVAILABLE, "MEDIA_UPLOAD_NOT_CONFIGURED"),
+	/** URL Cloudinary không khớp cloud/folder/public_id đã cấp phép */
+	CLOUDINARY_URL_INVALID(HttpStatus.BAD_REQUEST, "CLOUDINARY_URL_INVALID");
 
 	private final HttpStatus httpStatus;
 	private final String code;

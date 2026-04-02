@@ -1,6 +1,9 @@
 spring:
   application:
     name: used-cars-backend
+  # File cục bộ (gitignored): đặt cloud-name / api-key / api-secret tại đây hoặc dùng biến môi trường.
+  config:
+    import: optional:classpath:application-local.yml
   servlet:
     multipart:
       max-file-size: 2MB
@@ -43,3 +46,9 @@ app:
   jwt:
     secret: ${JWT_SECRET:defaultDevSecretKeyMustBe256BitsLongForHS256AlgorithmSecurityDevOnly!!}
     expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+  cloudinary:
+    # Upload qua Cloudinary SDK (ký server-side). Bắt buộc đủ 3 giá trị — không dùng upload preset.
+    # Gán qua biến môi trường hoặc application-local.yml (gitignored).
+    cloud-name: ${CLOUDINARY_CLOUD_NAME:}
+    api-key: ${CLOUDINARY_API_KEY:}
+    api-secret: ${CLOUDINARY_API_SECRET:}

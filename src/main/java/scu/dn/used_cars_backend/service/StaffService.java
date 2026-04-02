@@ -57,6 +57,28 @@ public class StaffService {
 						"Không xác định được chi nhánh quản lý."));
 	}
 
+	/**
+	 * Admin bắt buộc query {@code branchId}; BranchManager/SalesStaff lấy từ assignment hoặc manager_id.
+	 */
+	public int resolveBranchIdForAdminOrBranchStaff(Long branchIdParam, long actorUserId, boolean isAdmin) {
+		if (isAdmin) {
+			if (branchIdParam == null) {
+				throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+						"Param branchId is required for ADMIN role");
+			}
+			int bid;
+			try {
+				bid = Math.toIntExact(branchIdParam);
+			} catch (ArithmeticException ex) {
+				throw new BusinessException(ErrorCode.VALIDATION_FAILED, "branchId không hợp lệ.");
+			}
+			branchRepository.findByIdAndDeletedFalse(bid)
+					.orElseThrow(() -> new BusinessException(ErrorCode.BRANCH_NOT_FOUND, "Không tìm thấy chi nhánh."));
+			return bid;
+		}
+		return getManagerBranchId(actorUserId);
+	}
+
 	@Transactional(readOnly = true)
 	public List<StaffListItemDto> listStaff(Integer branchIdQuery, long actorUserId, boolean isAdmin) {
 		Integer filterBranchId;

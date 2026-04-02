@@ -5,7 +5,12 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-// Thống kê nhanh cho dashboard khách: đã lưu, lịch sắp tới; cọc/đơn Tier 4 tạm 0.
+/**
+ * Thống kê nhanh cho dashboard khách.
+ * <p>
+ * {@code savedVehicles} / {@code upcomingBookings}: nguồn DB thật.
+ * {@code activeDeposits} / {@code totalOrders}: cố định 0 cho tới khi Tier 4 (Orders/Deposits) — không phải đếm thật.
+ */
 @Data
 @Builder
 @NoArgsConstructor
@@ -14,6 +19,8 @@ public class CustomerStatsResponse {
 
 	private long savedVehicles;
 	private long upcomingBookings;
+	// TODO: Will be implemented in later sprint (Reporting / Analytics / Deposits)
 	private long activeDeposits;
+	// TODO: Will be implemented in later sprint (Reporting / Analytics / Orders)
 	private long totalOrders;
 }

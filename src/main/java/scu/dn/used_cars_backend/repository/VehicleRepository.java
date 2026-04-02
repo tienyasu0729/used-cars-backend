@@ -86,7 +86,17 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 			@Param("branchId") Integer branchId,
 			Pageable pageable);
 
-	@Query("select v from Vehicle v where v.id = :id and v.deleted = false and v.status = 'Available'")
-	Optional<Vehicle> findAvailableForBooking(@Param("id") Long id);
+	@Query("select v from Vehicle v where v.id = :id and v.deleted = false and v.status = :status")
+	Optional<Vehicle> findAvailableForBooking(@Param("id") Long id, @Param("status") String status);
+
+	long countByBranch_IdAndDeletedFalse(int branchId);
+
+	@Query("""
+			select count(v) from Vehicle v
+			where v.branch.id = :branchId
+			and v.deleted = false
+			and v.status = :status
+			""")
+	long countByBranchIdAndDeletedFalseAndStatus(@Param("branchId") int branchId, @Param("status") String status);
 
 }

@@ -33,6 +33,7 @@ import scu.dn.used_cars_backend.repository.BranchRepository;
 import scu.dn.used_cars_backend.repository.CategoryRepository;
 import scu.dn.used_cars_backend.repository.StaffAssignmentRepository;
 import scu.dn.used_cars_backend.repository.SubcategoryRepository;
+import scu.dn.used_cars_backend.repository.VehicleImageRepository;
 import scu.dn.used_cars_backend.repository.VehicleRepository;
 
 import java.math.BigDecimal;
@@ -57,6 +58,7 @@ public class VehicleService {
 	private static final int LISTING_ID_MAX_ATTEMPTS = 20;
 
 	private final VehicleRepository vehicleRepository;
+	private final VehicleImageRepository vehicleImageRepository;
 	private final CategoryRepository categoryRepository;
 	private final SubcategoryRepository subcategoryRepository;
 	private final BranchRepository branchRepository;
@@ -64,10 +66,12 @@ public class VehicleService {
 	private final CacheManager cacheManager;
 	private final SecureRandom listingIdRandom = new SecureRandom();
 
-	public VehicleService(VehicleRepository vehicleRepository, CategoryRepository categoryRepository,
-			SubcategoryRepository subcategoryRepository, BranchRepository branchRepository,
-			StaffAssignmentRepository staffAssignmentRepository, CacheManager cacheManager) {
+	public VehicleService(VehicleRepository vehicleRepository, VehicleImageRepository vehicleImageRepository,
+			CategoryRepository categoryRepository, SubcategoryRepository subcategoryRepository,
+			BranchRepository branchRepository, StaffAssignmentRepository staffAssignmentRepository,
+			CacheManager cacheManager) {
 		this.vehicleRepository = vehicleRepository;
+		this.vehicleImageRepository = vehicleImageRepository;
 		this.categoryRepository = categoryRepository;
 		this.subcategoryRepository = subcategoryRepository;
 		this.branchRepository = branchRepository;
@@ -301,6 +305,110 @@ public class VehicleService {
 		return toDetailDto(v);
 	}
 
+	// ===================== SPRINT 4 — STATUS + BULK + IMAGE =====================
+
+	/** Đổi trạng thái xe đơn lẻ (Available, Reserved, Sold, Hidden). */
+	@Transactional
+	public VehicleDetailDto changeVehicleStatus(long vehicleId, String newStatus, String note,
+			long actorUserId, boolean isAdmin) {
+		// B1: kiểm tra trạng thái hợp lệ
+		if (!VEHICLE_STATUSES.contains(newStatus)) {
+			throw new BusinessException(ErrorCode.INVALID_VEHICLE_STATUS,
+					"Trạng thái '" + newStatus + "' không hợp lệ.");
+		}
+		// B2: lấy xe + kiểm quyền chi nhánh
+		Vehicle v = vehicleRepository.findManagedDetailById(vehicleId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
+		assertCanManageBranch(actorUserId, isAdmin, v.getBranch());
+		// B3: cập nhật trạng thái
+		v.setStatus(newStatus);
+		vehicleRepository.save(v);
+		evictVehicleCaches(vehicleId);
+		return toDetailDto(v);
+	}
+
+	/** Đổi trạng thái xe hàng loạt — Fail-Fast: nếu bất kỳ xe nào ngoài chi nhánh → 403. */
+	@Transactional
+	public void bulkChangeStatus(java.util.List<Long> vehicleIds, String newStatus,
+			long actorUserId, boolean isAdmin) {
+		// B1: kiểm tra input
+		if (vehicleIds == null || vehicleIds.isEmpty()) {
+			throw new BusinessException(ErrorCode.INVALID_VEHICLE_LIST, "Danh sách xe rỗng.");
+		}
+		if (!VEHICLE_STATUSES.contains(newStatus)) {
+			throw new BusinessException(ErrorCode.INVALID_VEHICLE_STATUS,
+					"Trạng thái '" + newStatus + "' không hợp lệ.");
+		}
+		// B2: lấy từng xe, kiểm quyền + cập nhật
+		for (Long id : vehicleIds) {
+			Vehicle v = vehicleRepository.findManagedDetailById(id)
+					.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND,
+							"Không tìm thấy xe ID=" + id + "."));
+			assertCanManageBranch(actorUserId, isAdmin, v.getBranch());
+			v.setStatus(newStatus);
+			vehicleRepository.save(v);
+			evictVehicleCaches(id);
+		}
+	}
+
+	/** Xóa mềm xe hàng loạt — Fail-Fast: nếu bất kỳ xe nào ngoài chi nhánh → 403. */
+	@Transactional
+	public void bulkSoftDelete(java.util.List<Long> vehicleIds, long actorUserId, boolean isAdmin) {
+		if (vehicleIds == null || vehicleIds.isEmpty()) {
+			throw new BusinessException(ErrorCode.INVALID_VEHICLE_LIST, "Danh sách xe rỗng.");
+		}
+		for (Long id : vehicleIds) {
+			Vehicle v = vehicleRepository.findManagedDetailById(id)
+					.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND,
+							"Không tìm thấy xe ID=" + id + "."));
+			assertCanManageBranch(actorUserId, isAdmin, v.getBranch());
+			if (!v.isDeleted()) {
+				v.setDeleted(true);
+				vehicleRepository.save(v);
+				evictVehicleCaches(id);
+			}
+		}
+	}
+
+	/** Thêm ảnh vào xe — ảnh đã upload Cloudinary, chỉ lưu URL vào DB. */
+	@Transactional
+	public List<VehicleImageDto> addVehicleImages(long vehicleId, List<VehicleImageWriteDto> images,
+			long actorUserId, boolean isAdmin) {
+		// B1: lấy xe + kiểm quyền
+		Vehicle v = vehicleRepository.findManagedDetailById(vehicleId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
+		assertCanManageBranch(actorUserId, isAdmin, v.getBranch());
+		// B2: tạo entity ảnh từ DTO
+		for (VehicleImageWriteDto d : images) {
+			VehicleImage img = new VehicleImage();
+			img.setVehicle(v);
+			img.setImageUrl(d.getUrl().trim());
+			img.setSortOrder(d.getSortOrder() != null ? d.getSortOrder() : 0);
+			img.setPrimaryImage(Boolean.TRUE.equals(d.getPrimaryImage()));
+			v.getImages().add(img);
+		}
+		vehicleRepository.save(v);
+		evictVehicleCaches(vehicleId);
+		// B3: trả lại danh sách ảnh hiện tại
+		return mapVehicleImagesToDtos(v);
+	}
+
+	/** Xóa 1 ảnh xe — chỉ xóa record DB (ảnh trên Cloudinary giữ nguyên). */
+	@Transactional
+	public void deleteVehicleImage(long vehicleId, long imageId, long actorUserId, boolean isAdmin) {
+		// B1: lấy xe + kiểm quyền
+		Vehicle v = vehicleRepository.findManagedDetailById(vehicleId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
+		assertCanManageBranch(actorUserId, isAdmin, v.getBranch());
+		// B2: tìm ảnh thuộc xe
+		VehicleImage img = vehicleImageRepository.findByIdAndVehicle_Id(imageId, vehicleId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.IMAGE_NOT_FOUND, "Không tìm thấy ảnh."));
+		// B3: xóa khỏi DB
+		v.getImages().remove(img);
+		vehicleRepository.save(v);
+		evictVehicleCaches(vehicleId);
+	}
+
 	/** Giống @CacheEvict: xóa toàn bộ list + 1 key detail. */
 	private void evictVehicleCaches(Long vehicleId) {
 		Cache list = cacheManager.getCache("vehicleList");
@@ -518,6 +626,11 @@ public class VehicleService {
 		throw new BusinessException(ErrorCode.FORBIDDEN, String.format(
 				"Không có quyền thao tác xe thuộc chi nhánh \"%s\" (id=%d). Cần: Admin; hoặc tài khoản là manager_id của chi nhánh; hoặc có StaffAssignments đang active tại chi nhánh đó.",
 				bname, bid));
+	}
+
+	/** Public wrapper — dùng bởi MaintenanceService để kiểm quyền chi nhánh. */
+	public void assertCanManageBranchPublic(long actorUserId, boolean isAdmin, Branch branch) {
+		assertCanManageBranch(actorUserId, isAdmin, branch);
 	}
 
 	private static void applyImagesFromRequest(Vehicle v, List<VehicleImageWriteDto> dtos) {

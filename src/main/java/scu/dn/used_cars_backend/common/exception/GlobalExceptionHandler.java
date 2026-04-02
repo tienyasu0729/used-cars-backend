@@ -174,6 +174,10 @@ public class GlobalExceptionHandler {
 			case STAFF_PEER_EDIT_FORBIDDEN -> "Không thể chỉnh sửa nhân sự cùng vai trò với bạn.";
 			case MEDIA_UPLOAD_NOT_CONFIGURED -> "Máy chủ chưa bật upload ảnh (Cloudinary).";
 			case CLOUDINARY_URL_INVALID -> "URL ảnh Cloudinary không hợp lệ hoặc không khớp quyền upload.";
+			case IMAGE_NOT_FOUND -> "Không tìm thấy ảnh xe.";
+			case INVALID_VEHICLE_STATUS -> "Trạng thái xe không hợp lệ.";
+			case INVALID_VEHICLE_LIST -> "Danh sách xe không hợp lệ.";
+			case MAINTENANCE_NOT_FOUND -> "Không tìm thấy bản ghi bảo dưỡng.";
 		};
 	}
 }

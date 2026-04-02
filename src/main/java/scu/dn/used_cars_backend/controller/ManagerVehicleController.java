@@ -11,6 +11,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -22,13 +23,19 @@ import org.springframework.web.bind.annotation.RestController;
 import scu.dn.used_cars_backend.common.api.ApiResponse;
 import scu.dn.used_cars_backend.common.exception.BusinessException;
 import scu.dn.used_cars_backend.common.exception.ErrorCode;
+import scu.dn.used_cars_backend.dto.vehicle.AddVehicleImagesRequest;
+import scu.dn.used_cars_backend.dto.vehicle.BulkDeleteRequest;
+import scu.dn.used_cars_backend.dto.vehicle.BulkStatusRequest;
+import scu.dn.used_cars_backend.dto.vehicle.UpdateVehicleStatusRequest;
 import scu.dn.used_cars_backend.dto.vehicle.VehicleCreateRequest;
 import scu.dn.used_cars_backend.dto.vehicle.VehicleDetailDto;
+import scu.dn.used_cars_backend.dto.vehicle.VehicleImageDto;
 import scu.dn.used_cars_backend.dto.vehicle.VehicleListResponse;
 import scu.dn.used_cars_backend.dto.vehicle.VehicleUpdateRequest;
 import scu.dn.used_cars_backend.service.VehicleService;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/manager/vehicles")
@@ -107,6 +114,59 @@ public class ManagerVehicleController {
 		return ResponseEntity.ok(ApiResponse.success(dto));
 	}
 
+	// ===================== SPRINT 4 — Status + Bulk + Images =====================
+
+	/** Đổi trạng thái xe đơn lẻ (Available, Reserved, Sold, Hidden). */
+	@PatchMapping("/{id}/status")
+	public ResponseEntity<ApiResponse<VehicleDetailDto>> changeStatus(@PathVariable long id,
+			@Valid @RequestBody UpdateVehicleStatusRequest request, Authentication authentication) {
+		long userId = requireUserId(authentication);
+		boolean admin = isAdmin(authentication);
+		VehicleDetailDto dto = vehicleService.changeVehicleStatus(id, request.getStatus(), request.getNote(),
+				userId, admin);
+		return ResponseEntity.ok(ApiResponse.success(dto));
+	}
+
+	/** Đổi trạng thái xe hàng loạt — Fail-Fast nếu xe ngoài chi nhánh. */
+	@PatchMapping("/bulk-status")
+	public ResponseEntity<ApiResponse<Void>> bulkChangeStatus(@Valid @RequestBody BulkStatusRequest request,
+			Authentication authentication) {
+		long userId = requireUserId(authentication);
+		boolean admin = isAdmin(authentication);
+		vehicleService.bulkChangeStatus(request.getVehicleIds(), request.getStatus(), userId, admin);
+		return ResponseEntity.ok(ApiResponse.<Void>success(null));
+	}
+
+	/** Xóa mềm xe hàng loạt — Fail-Fast nếu xe ngoài chi nhánh. */
+	@DeleteMapping("/bulk-delete")
+	public ResponseEntity<ApiResponse<Void>> bulkDelete(@Valid @RequestBody BulkDeleteRequest request,
+			Authentication authentication) {
+		long userId = requireUserId(authentication);
+		boolean admin = isAdmin(authentication);
+		vehicleService.bulkSoftDelete(request.getVehicleIds(), userId, admin);
+		return ResponseEntity.ok(ApiResponse.<Void>success(null));
+	}
+
+	/** Thêm ảnh vào xe — client đã upload lên Cloudinary, gửi URL về đây để lưu DB. */
+	@PostMapping("/{id}/images")
+	public ResponseEntity<ApiResponse<List<VehicleImageDto>>> addImages(@PathVariable long id,
+			@Valid @RequestBody AddVehicleImagesRequest request, Authentication authentication) {
+		long userId = requireUserId(authentication);
+		boolean admin = isAdmin(authentication);
+		List<VehicleImageDto> images = vehicleService.addVehicleImages(id, request.getImages(), userId, admin);
+		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(images));
+	}
+
+	/** Xóa 1 ảnh xe khỏi DB. */
+	@DeleteMapping("/{id}/images/{imageId}")
+	public ResponseEntity<ApiResponse<Void>> deleteImage(@PathVariable long id, @PathVariable long imageId,
+			Authentication authentication) {
+		long userId = requireUserId(authentication);
+		boolean admin = isAdmin(authentication);
+		vehicleService.deleteVehicleImage(id, imageId, userId, admin);
+		return ResponseEntity.ok(ApiResponse.<Void>success(null));
+	}
+
 	private static long requireUserId(Authentication authentication) {
 		if (authentication == null || authentication.getDetails() == null) {
 			throw new BusinessException(ErrorCode.UNAUTHORIZED, "Yêu cầu đăng nhập.");
@@ -125,5 +185,4 @@ public class ManagerVehicleController {
 		}
 		return false;
 	}
-
 }

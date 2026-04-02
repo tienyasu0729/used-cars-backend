@@ -52,7 +52,17 @@ public enum ErrorCode {
 	/** Upload ảnh qua Cloudinary chưa cấu hình trên máy chủ */
 	MEDIA_UPLOAD_NOT_CONFIGURED(HttpStatus.SERVICE_UNAVAILABLE, "MEDIA_UPLOAD_NOT_CONFIGURED"),
 	/** URL Cloudinary không khớp cloud/folder/public_id đã cấp phép */
-	CLOUDINARY_URL_INVALID(HttpStatus.BAD_REQUEST, "CLOUDINARY_URL_INVALID");
+	CLOUDINARY_URL_INVALID(HttpStatus.BAD_REQUEST, "CLOUDINARY_URL_INVALID"),
+
+	// Sprint 4 — Vehicle extras
+	/** Ảnh xe không tìm thấy hoặc không thuộc xe này */
+	IMAGE_NOT_FOUND(HttpStatus.NOT_FOUND, "IMAGE_NOT_FOUND"),
+	/** Trạng thái xe không hợp lệ (không nằm trong danh sách cho phép) */
+	INVALID_VEHICLE_STATUS(HttpStatus.BAD_REQUEST, "INVALID_VEHICLE_STATUS"),
+	/** Danh sách xe rỗng hoặc không hợp lệ */
+	INVALID_VEHICLE_LIST(HttpStatus.BAD_REQUEST, "INVALID_VEHICLE_LIST"),
+	/** Bản ghi bảo dưỡng không tìm thấy */
+	MAINTENANCE_NOT_FOUND(HttpStatus.NOT_FOUND, "MAINTENANCE_NOT_FOUND");
 
 	private final HttpStatus httpStatus;
 	private final String code;

@@ -16,6 +16,8 @@ public interface BranchRepository extends JpaRepository<Branch, Integer> {
 
 	List<Branch> findAllByDeletedFalseOrderByIdAsc();
 
+	long countByDeletedFalse();
+
 	@EntityGraph(attributePaths = "manager")
 	@Query("select b from Branch b where b.id = :id and b.deleted = false")
 	Optional<Branch> findActiveByIdWithManager(@Param("id") Integer id);

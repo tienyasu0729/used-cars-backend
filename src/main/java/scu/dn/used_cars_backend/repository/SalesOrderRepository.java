@@ -8,8 +8,12 @@ import scu.dn.used_cars_backend.entity.SalesOrder;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Optional;
 
 public interface SalesOrderRepository extends JpaRepository<SalesOrder, Long> {
+
+	@Query("SELECT o FROM SalesOrder o JOIN FETCH o.branch WHERE o.id = :id")
+	Optional<SalesOrder> findByIdWithBranch(@Param("id") long id);
 
 	@Query("SELECT COUNT(o) FROM SalesOrder o WHERE o.branch.id = :branchId AND o.status <> 'Cancelled'")
 	long countOrdersExcludingCancelled(@Param("branchId") Integer branchId);

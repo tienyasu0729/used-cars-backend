@@ -20,6 +20,7 @@ public class BranchPublicDto {
 	private String name;
 	private String address;
 	private String phone;
+	private String status;
 	private BigDecimal lat;
 	private BigDecimal lng;
 

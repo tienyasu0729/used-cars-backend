@@ -10,8 +10,12 @@ import scu.dn.used_cars_backend.dto.catalog.CatalogCategoryDto;
 import scu.dn.used_cars_backend.dto.catalog.CatalogSubcategoryDto;
 import scu.dn.used_cars_backend.entity.Category;
 import scu.dn.used_cars_backend.entity.Subcategory;
+import scu.dn.used_cars_backend.entity.VehicleFuelType;
+import scu.dn.used_cars_backend.entity.VehicleTransmission;
 import scu.dn.used_cars_backend.repository.CategoryRepository;
 import scu.dn.used_cars_backend.repository.SubcategoryRepository;
+import scu.dn.used_cars_backend.repository.VehicleFuelTypeRepository;
+import scu.dn.used_cars_backend.repository.VehicleTransmissionRepository;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,6 +28,8 @@ public class CatalogService {
 
 	private final CategoryRepository categoryRepository;
 	private final SubcategoryRepository subcategoryRepository;
+	private final VehicleFuelTypeRepository vehicleFuelTypeRepository;
+	private final VehicleTransmissionRepository vehicleTransmissionRepository;
 
 	@Transactional(readOnly = true)
 	public List<CatalogCategoryDto> listCategories() {
@@ -48,6 +54,28 @@ public class CatalogService {
 			d.setName(s.getName());
 			d.setStatus(s.getStatus());
 			out.add(d);
+		}
+		return out;
+	}
+
+	@Transactional(readOnly = true)
+	public List<String> listActiveFuelTypeNames() {
+		List<String> out = new ArrayList<>();
+		for (VehicleFuelType f : vehicleFuelTypeRepository.findByStatusIgnoreCaseOrderByNameAsc(ACTIVE)) {
+			if (f.getName() != null && !f.getName().isBlank()) {
+				out.add(f.getName().trim());
+			}
+		}
+		return out;
+	}
+
+	@Transactional(readOnly = true)
+	public List<String> listActiveTransmissionNames() {
+		List<String> out = new ArrayList<>();
+		for (VehicleTransmission t : vehicleTransmissionRepository.findByStatusIgnoreCaseOrderByNameAsc(ACTIVE)) {
+			if (t.getName() != null && !t.getName().isBlank()) {
+				out.add(t.getName().trim());
+			}
 		}
 		return out;
 	}

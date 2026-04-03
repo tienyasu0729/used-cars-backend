@@ -162,11 +162,16 @@ public class BranchService {
 
 	private BranchPublicDto toPublicDto(Branch b) {
 		int bid = b.getId();
+		String st = b.getStatus();
+		if (st == null || st.isBlank()) {
+			st = "active";
+		}
 		return BranchPublicDto.builder()
 				.id(bid)
 				.name(b.getName())
 				.address(b.getAddress())
 				.phone(b.getPhone())
+				.status(st)
 				.lat(b.getLat())
 				.lng(b.getLng())
 				.showroomImageUrls(new ArrayList<>(readShowroomImageUrls(b.getShowroomImageUrlsJson())))

@@ -8,6 +8,9 @@ public enum MediaUploadContext {
 	/** Ảnh quản lý (xe, showroom, …) qua {@code /api/v1/manager/media/image}. */
 	MANAGER_GENERAL("used-cars", false),
 
+	/** Banner trang chủ — {@code /api/v1/admin/home-banners/upload-signature}. */
+	HOME_BANNER("used-cars/home-banners", false),
+
 	/** Avatar người dùng qua {@code POST /api/v1/users/me/avatar}; {@code scopeId} = userId. */
 	AVATAR("used-cars/avatars", true);
 

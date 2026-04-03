@@ -25,7 +25,6 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 
-// Lọc JWT; bỏ qua filter cho login/register và GET catalog/vehicles (đọc công khai).
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -34,7 +33,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 			new AntPathRequestMatcher("/api/v1/auth/login", "POST"),
 			new AntPathRequestMatcher("/api/v1/auth/register", "POST"));
 
-	/** Guest: xem catalog + chi nhánh + danh sách/chi tiết xe công khai (không JWT). */
 	private static final RequestMatcher PUBLIC_READ_CATALOG_AND_VEHICLES = new OrRequestMatcher(
 			new AntPathRequestMatcher("/api/v1/catalog/**", "GET"),
 			new AntPathRequestMatcher("/api/v1/branches", "GET"),
@@ -46,64 +44,98 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 			new AntPathRequestMatcher("/api/v1/vehicles/recently-viewed", "GET"),
 			new AntPathRequestMatcher("/api/v1/bookings/available-slots", "GET"));
 
+	private static final RequestMatcher WS_HANDSHAKE = new AntPathRequestMatcher("/ws/**");
+
+	private static final RequestMatcher PUBLIC_PAYMENT_GATEWAY = new OrRequestMatcher(
+			new AntPathRequestMatcher("/api/v1/payment/vnpay/return", "GET"),
+			new AntPathRequestMatcher("/api/v1/payment/vnpay/ipn", "GET"),
+			new AntPathRequestMatcher("/api/v1/payment/vnpay/ipn", "POST"),
+			new AntPathRequestMatcher("/api/v1/payment/zalopay/callback", "POST"));
+
 	private final JwtService jwtService;
 	private final UserRepository userRepository;
 	private final HttpErrorResponseWriter errorWriter;
 
 	@Override
 	protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
-		return PUBLIC_AUTH.matches(request) || PUBLIC_READ_CATALOG_AND_VEHICLES.matches(request);
+		return PUBLIC_AUTH.matches(request) || PUBLIC_PAYMENT_GATEWAY.matches(request) || WS_HANDSHAKE.matches(request);
 	}
 
 	@Override
 	protected void doFilterInternal(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response,
 			@NonNull FilterChain filterChain) throws ServletException, IOException {
 		String header = request.getHeader("Authorization");
+		if (PUBLIC_READ_CATALOG_AND_VEHICLES.matches(request)) {
+			if (header == null || !header.startsWith("Bearer ")) {
+				filterChain.doFilter(request, response);
+				return;
+			}
+			try {
+				String token = header.substring(7).trim();
+				if (authenticateWithToken(request, response, token, true)) {
+					filterChain.doFilter(request, response);
+				}
+			}
+			finally {
+				SecurityContextHolder.clearContext();
+			}
+			return;
+		}
 		if (header == null || !header.startsWith("Bearer ")) {
 			errorWriter.write(response, ErrorCode.UNAUTHORIZED, "Yêu cầu đăng nhập.", request.getRequestURI());
 			return;
 		}
-		String token = header.substring(7).trim();
 		try {
-			Claims claims = jwtService.parseClaims(token);
-			Long userId = Long.parseLong(claims.getSubject());
-			String roleName = claims.get("role", String.class);
-			if (roleName == null || roleName.isBlank()) {
-				errorWriter.write(response, ErrorCode.UNAUTHORIZED, "Token không hợp lệ.", request.getRequestURI());
-				return;
+			String token = header.substring(7).trim();
+			if (authenticateWithToken(request, response, token, false)) {
+				filterChain.doFilter(request, response);
 			}
-			Optional<User> userOpt = userRepository.findByIdAndDeletedFalse(userId);
-			if (userOpt.isEmpty()) {
-				errorWriter.write(response, ErrorCode.UNAUTHORIZED, "Token không hợp lệ.", request.getRequestURI());
-				return;
-			}
-			User user = userOpt.get();
-			if (!"active".equalsIgnoreCase(user.getStatus())) {
-				errorWriter.write(response, ErrorCode.ACCOUNT_SUSPENDED, "Tài khoản bị khóa.", request.getRequestURI());
-				return;
-			}
-			if (Boolean.TRUE.equals(user.getPasswordChangeRequired()) && !isPasswordChangeMandatoryExempt(request)) {
-				errorWriter.write(response, ErrorCode.PASSWORD_CHANGE_REQUIRED,
-						"Vui lòng đặt mật khẩu mới trước khi tiếp tục.", request.getRequestURI());
-				return;
-			}
-			String authority = "ROLE_" + roleName.toUpperCase().replace(' ', '_');
-			UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(user.getEmail(), null,
-					List.of(new SimpleGrantedAuthority(authority)));
-			auth.setDetails(userId);
-			SecurityContextHolder.getContext().setAuthentication(auth);
-			filterChain.doFilter(request, response);
-		}
-		catch (JwtException | IllegalArgumentException ex) {
-			errorWriter.write(response, ErrorCode.UNAUTHORIZED, "Token không hợp lệ hoặc đã hết hạn.",
-					request.getRequestURI());
 		}
 		finally {
 			SecurityContextHolder.clearContext();
 		}
 	}
 
-	/** Cho phép đặt MK mới bắt buộc và đăng xuất khi đang bị khóa API bởi cờ password_change_required. */
+	private boolean authenticateWithToken(HttpServletRequest request, HttpServletResponse response, String token,
+			boolean optionalPublicRead) throws IOException {
+		try {
+			Claims claims = jwtService.parseClaims(token);
+			Long userId = Long.parseLong(claims.getSubject());
+			String roleName = claims.get("role", String.class);
+			if (roleName == null || roleName.isBlank()) {
+				errorWriter.write(response, ErrorCode.UNAUTHORIZED, "Token không hợp lệ.", request.getRequestURI());
+				return false;
+			}
+			Optional<User> userOpt = userRepository.findByIdAndDeletedFalse(userId);
+			if (userOpt.isEmpty()) {
+				errorWriter.write(response, ErrorCode.UNAUTHORIZED, "Token không hợp lệ.", request.getRequestURI());
+				return false;
+			}
+			User user = userOpt.get();
+			if (!"active".equalsIgnoreCase(user.getStatus())) {
+				errorWriter.write(response, ErrorCode.ACCOUNT_SUSPENDED, "Tài khoản bị khóa.", request.getRequestURI());
+				return false;
+			}
+			if (!optionalPublicRead && Boolean.TRUE.equals(user.getPasswordChangeRequired())
+					&& !isPasswordChangeMandatoryExempt(request)) {
+				errorWriter.write(response, ErrorCode.PASSWORD_CHANGE_REQUIRED,
+						"Vui lòng đặt mật khẩu mới trước khi tiếp tục.", request.getRequestURI());
+				return false;
+			}
+			String authority = "ROLE_" + roleName.toUpperCase().replace(' ', '_');
+			UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(user.getEmail(), null,
+					List.of(new SimpleGrantedAuthority(authority)));
+			auth.setDetails(userId);
+			SecurityContextHolder.getContext().setAuthentication(auth);
+			return true;
+		}
+		catch (JwtException | IllegalArgumentException ex) {
+			errorWriter.write(response, ErrorCode.UNAUTHORIZED, "Token không hợp lệ hoặc đã hết hạn.",
+					request.getRequestURI());
+			return false;
+		}
+	}
+
 	private static boolean isPasswordChangeMandatoryExempt(HttpServletRequest request) {
 		if (!"POST".equalsIgnoreCase(request.getMethod())) {
 			return false;

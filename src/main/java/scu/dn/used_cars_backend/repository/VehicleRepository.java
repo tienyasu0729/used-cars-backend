@@ -99,4 +99,51 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 			""")
 	long countByBranchIdAndDeletedFalseAndStatus(@Param("branchId") int branchId, @Param("status") String status);
 
+	long countByDeletedFalse();
+
+	long countByDeletedFalseAndStatus(String status);
+
+	@Query("""
+			select v.category.id, count(v) from Vehicle v
+			where v.deleted = false
+			group by v.category.id
+			""")
+	List<Object[]> countActiveByCategoryId();
+
+	@Query("""
+			select v.subcategory.id, count(v) from Vehicle v
+			where v.deleted = false
+			group by v.subcategory.id
+			""")
+	List<Object[]> countActiveBySubcategoryId();
+
+	@Query("""
+			select v.category.id, v.category.name, count(v) from Vehicle v
+			where v.deleted = false and v.status = 'Sold'
+			and (:branchId is null or v.branch.id = :branchId)
+			group by v.category.id, v.category.name
+			""")
+	List<Object[]> countSoldByCategory(@Param("branchId") Integer branchId);
+
+	@Query("""
+			select v.subcategory.id, v.subcategory.name, v.category.name, count(v) from Vehicle v
+			where v.deleted = false and v.status = 'Sold'
+			and (:branchId is null or v.branch.id = :branchId)
+			group by v.subcategory.id, v.subcategory.name, v.category.name
+			order by count(v) desc
+			""")
+	List<Object[]> countSoldBySubcategory(@Param("branchId") Integer branchId);
+
+	@Query("""
+			select count(v) from Vehicle v
+			where v.deleted = false and lower(trim(coalesce(v.fuel, ''))) = lower(trim(:label))
+			""")
+	long countActiveByFuelLabel(@Param("label") String label);
+
+	@Query("""
+			select count(v) from Vehicle v
+			where v.deleted = false and lower(trim(coalesce(v.transmission, ''))) = lower(trim(:label))
+			""")
+	long countActiveByTransmissionLabel(@Param("label") String label);
+
 }

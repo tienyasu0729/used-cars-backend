@@ -37,3 +37,4 @@ docs/
 
 # Cloudinary / secret cục bộ — không commit
 src/main/resources/application-local.yml
+src/main/resources/db

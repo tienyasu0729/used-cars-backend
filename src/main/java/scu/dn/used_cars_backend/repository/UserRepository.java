@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 
 import scu.dn.used_cars_backend.entity.User;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -84,4 +85,35 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 	boolean existsByPhoneIgnoreCaseAndDeletedFalse(String phone);
 
 	boolean existsByPhoneIgnoreCaseAndDeletedFalseAndIdNot(String phone, Long id);
+
+	@Query("""
+			select count(distinct u.id) from User u
+			join u.userRoles ur
+			join ur.role r
+			where r.name = 'Customer' and u.deleted = false
+			and u.createdAt >= :fromInclusive
+			""")
+	long countCustomersCreatedSince(@Param("fromInclusive") Instant fromInclusive);
+
+	@EntityGraph(attributePaths = { "userRoles", "userRoles.role" })
+	@Query("""
+			select distinct u from User u
+			join u.userRoles ur
+			join ur.role r
+			where r.name = 'Customer' and u.deleted = false and lower(u.status) = 'active'
+			""")
+	List<User> findActiveCustomersWithRoles();
+
+	@EntityGraph(attributePaths = { "userRoles", "userRoles.role" })
+	@Query("""
+			select distinct u from User u
+			join u.userRoles ur
+			join ur.role r
+			where r.name in ('SalesStaff', 'BranchManager') and u.deleted = false and lower(u.status) = 'active'
+			""")
+	List<User> findActiveStaffAndManagersWithRoles();
+
+	@EntityGraph(attributePaths = { "userRoles", "userRoles.role" })
+	@Query("select u from User u where u.id in :ids and u.deleted = false and lower(u.status) = 'active'")
+	List<User> findActiveByIdIn(@Param("ids") List<Long> ids);
 }

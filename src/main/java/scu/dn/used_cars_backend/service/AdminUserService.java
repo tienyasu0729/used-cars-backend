@@ -33,6 +33,7 @@ import scu.dn.used_cars_backend.repository.spec.UserAdminSpecs;
 
 import java.security.SecureRandom;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -47,7 +48,7 @@ public class AdminUserService {
 	private static final String ROLE_SALES = "SalesStaff";
 	private static final String ROLE_MANAGER = "BranchManager";
 	private static final String ROLE_ADMIN = "Admin";
-	private static final Set<String> ASSIGNABLE_ROLES = Set.of(ROLE_CUSTOMER, ROLE_SALES, ROLE_MANAGER, ROLE_ADMIN);
+	private static final Set<String> ASSIGNABLE_ROLES = Set.of(ROLE_CUSTOMER, ROLE_SALES, ROLE_MANAGER);
 
 	private static final String DB_SUSPENDED = "suspended";
 	private static final String API_LOCKED = "locked";
@@ -105,8 +106,8 @@ public class AdminUserService {
 		if (phone != null && userRepository.existsByPhoneIgnoreCaseAndDeletedFalse(phone)) {
 			throw new BusinessException(ErrorCode.STAFF_PHONE_EXISTS, "Số điện thoại đã được sử dụng.");
 		}
-		Role role = roleRepository.findByName(roleName)
-				.orElseThrow(() -> new IllegalStateException("Role seed thiếu: " + roleName));
+		Role role = roleRepository.findByNameIgnoreCase(roleName)
+				.orElseThrow(() -> new BusinessException(ErrorCode.ROLE_NOT_FOUND, "Không tìm thấy vai trò."));
 		User user = new User();
 		user.setName(req.getName().trim());
 		user.setEmail(email);
@@ -128,9 +129,20 @@ public class AdminUserService {
 	@Transactional
 	public void updateUser(long userId, UpdateAdminUserRequest req) {
 		User user = loadUserForAdmin(userId);
+		String currentRole = resolveDisplayRoleName(user);
 		String roleName = normalizeRoleName(req.getRole());
-		if (!ASSIGNABLE_ROLES.contains(roleName)) {
-			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Vai trò không hợp lệ.");
+		if (ROLE_ADMIN.equals(currentRole)) {
+			if (!ROLE_ADMIN.equals(roleName)) {
+				throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Không thể đổi vai trò tài khoản Admin qua API.");
+			}
+		}
+		else {
+			if (!ASSIGNABLE_ROLES.contains(roleName)) {
+				throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Vai trò không hợp lệ.");
+			}
+			if (ROLE_ADMIN.equals(roleName)) {
+				throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Không thể gán vai trò Admin qua API.");
+			}
 		}
 		if (ROLE_SALES.equals(roleName) || ROLE_MANAGER.equals(roleName)) {
 			if (req.getBranchId() == null) {
@@ -149,7 +161,6 @@ public class AdminUserService {
 		user.setPhone(phone);
 		user.setStatus(dbStatus);
 		replaceUserRole(user, roleName);
-		userRepository.save(user);
 		syncStaffAndBranchManager(user, roleName, req.getBranchId());
 	}
 
@@ -192,14 +203,24 @@ public class AdminUserService {
 	}
 
 	private void replaceUserRole(User user, String roleName) {
-		Role role = roleRepository.findByName(roleName)
-				.orElseThrow(() -> new IllegalStateException("Role seed thiếu: " + roleName));
-		userRoleRepository.deleteAllByUser_Id(user.getId());
+		Role role = roleRepository.findByNameIgnoreCase(roleName)
+				.orElseThrow(() -> new BusinessException(ErrorCode.ROLE_NOT_FOUND, "Không tìm thấy vai trò."));
+		if (user.getUserRoles().size() == 1) {
+			UserRole lone = user.getUserRoles().iterator().next();
+			if (lone.getRole() != null && role.getId() != null && role.getId().equals(lone.getRole().getId())) {
+				return;
+			}
+		}
+		for (UserRole ur : new ArrayList<>(user.getUserRoles())) {
+			userRoleRepository.delete(ur);
+		}
 		user.getUserRoles().clear();
+		userRoleRepository.flush();
 		UserRole link = new UserRole();
 		link.setUser(user);
 		link.setRole(role);
 		user.getUserRoles().add(link);
+		userRoleRepository.save(link);
 	}
 
 	private void syncStaffAndBranchManager(User user, String roleName, Integer branchId) {

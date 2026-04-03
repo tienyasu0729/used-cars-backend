@@ -12,6 +12,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import scu.dn.used_cars_backend.common.error.ApiErrorResponse;
 
@@ -106,6 +108,32 @@ public class GlobalExceptionHandler {
 		return ResponseEntity.status(ErrorCode.LISTING_ID_CONFLICT.getHttpStatus()).body(body);
 	}
 
+	@ExceptionHandler(NoResourceFoundException.class)
+	public ResponseEntity<ApiErrorResponse> handleNoResource(NoResourceFoundException ex,
+			HttpServletRequest request) {
+		ApiErrorResponse body = ApiErrorResponse.builder()
+				.timestamp(Instant.now())
+				.status(HttpStatus.NOT_FOUND.value())
+				.errorCode(ErrorCode.RESOURCE_NOT_FOUND.getCode())
+				.message("Không tìm thấy tài nguyên.")
+				.path(request.getRequestURI())
+				.build();
+		return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+	}
+
+	@ExceptionHandler(NoHandlerFoundException.class)
+	public ResponseEntity<ApiErrorResponse> handleNoHandler(NoHandlerFoundException ex,
+			HttpServletRequest request) {
+		ApiErrorResponse body = ApiErrorResponse.builder()
+				.timestamp(Instant.now())
+				.status(HttpStatus.NOT_FOUND.value())
+				.errorCode(ErrorCode.RESOURCE_NOT_FOUND.getCode())
+				.message("Không tìm thấy API.")
+				.path(request.getRequestURI())
+				.build();
+		return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+	}
+
 	@ExceptionHandler(AccessDeniedException.class)
 	public ResponseEntity<ApiErrorResponse> handleForbidden(AccessDeniedException ex, HttpServletRequest request) {
 		ApiErrorResponse body = ApiErrorResponse.builder()
@@ -182,6 +210,13 @@ public class GlobalExceptionHandler {
 			case USER_EMAIL_EXISTS -> "Email đã được sử dụng.";
 			case ROLE_NOT_FOUND -> "Không tìm thấy vai trò.";
 			case ROLE_IN_USE -> "Vai trò đang được gán cho người dùng, không thể xóa.";
+			case RESOURCE_NOT_FOUND -> "Không tìm thấy tài nguyên.";
+			case ORDER_NOT_FOUND -> "Không tìm thấy đơn hàng.";
+			case PAYMENT_FORBIDDEN -> "Không có quyền thanh toán đơn này.";
+			case PAYMENT_AMOUNT_MISMATCH -> "Số tiền không khớp tiền cọc hoặc số còn lại.";
+			case NOTIFICATION_NOT_FOUND -> "Không tìm thấy thông báo.";
+			case ANNOUNCEMENT_NOT_FOUND -> "Không tìm thấy thông báo hệ thống.";
+			case MAIL_NOT_CONFIGURED -> "Chưa cấu hình gửi email (SMTP).";
 		};
 	}
 }

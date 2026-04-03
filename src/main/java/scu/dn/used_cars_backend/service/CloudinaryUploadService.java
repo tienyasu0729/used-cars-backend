@@ -122,4 +122,21 @@ public class CloudinaryUploadService {
 			}
 		}
 	}
+
+	public void destroyByPublicIdIfConfigured(String publicId) {
+		if (publicId == null || publicId.isBlank()) {
+			return;
+		}
+		try {
+			Cloudinary c = client();
+			@SuppressWarnings("unchecked")
+			Map<String, Object> res = c.uploader().destroy(publicId.trim(), ObjectUtils.asMap("resource_type", "image"));
+			Object r = res.get("result");
+			if (r != null && !"ok".equals(String.valueOf(r)) && !"not found".equalsIgnoreCase(String.valueOf(r))) {
+				log.warn("Cloudinary destroy unexpected result: {}", res);
+			}
+		} catch (Exception e) {
+			log.warn("Cloudinary destroy failed: {}", e.getMessage());
+		}
+	}
 }

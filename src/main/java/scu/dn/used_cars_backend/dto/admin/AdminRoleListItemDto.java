@@ -11,6 +11,7 @@ public class AdminRoleListItemDto {
 	Integer id;
 	String name;
 	long userCount;
+	List<Integer> permissionIds;
 	List<String> permissions;
 	/** true nếu là role seed hệ thống — không cho sửa/xóa qua API custom role. */
 	boolean systemRole;

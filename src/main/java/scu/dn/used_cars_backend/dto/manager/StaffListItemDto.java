@@ -19,4 +19,6 @@ public class StaffListItemDto {
 	private String branchName;
 	private String status;
 	private Instant createdAt;
+	/** true = đã gỡ khỏi nhân sự (soft delete), vẫn hiện trong danh sách chi nhánh. */
+	private boolean deleted;
 }

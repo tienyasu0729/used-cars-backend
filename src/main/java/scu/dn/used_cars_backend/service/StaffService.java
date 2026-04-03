@@ -97,7 +97,7 @@ public class StaffService {
 			}
 		}
 		return users.stream()
-				.map(u -> toListItem(u, branchNames, activeByUserId.get(u.getId())))
+				.map(u -> toListItem(u, branchNames, activeByUserId.get(u.getId()), filterBranchId))
 				.collect(Collectors.toList());
 	}
 
@@ -193,10 +193,77 @@ public class StaffService {
 		}
 	}
 
+	/**
+	 * Hoàn tác gỡ nhân sự: bỏ cờ xóa mềm, bật lại phân công tại chi nhánh (nếu cần) để nhân viên đăng nhập và hiện trong
+	 * danh sách làm việc.
+	 */
+	@Transactional
+	public StaffListItemDto restoreStaff(long staffId, Integer adminBranchIdParam, long actorUserId, boolean isAdmin) {
+		User user = loadStaffUserIncludingDeleted(staffId);
+		if (!Boolean.TRUE.equals(user.getDeleted())) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Nhân viên này chưa bị gỡ khỏi nhân sự.");
+		}
+		assertNonAdminCannotMutateSameStaffRole(actorUserId, isAdmin, user);
+
+		int restoreBranchId;
+		if (isAdmin) {
+			if (adminBranchIdParam == null) {
+				throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+						"branchId trong body là bắt buộc khi admin khôi phục nhân viên.");
+			}
+			try {
+				restoreBranchId = Math.toIntExact(adminBranchIdParam);
+			} catch (ArithmeticException ex) {
+				throw new BusinessException(ErrorCode.VALIDATION_FAILED, "branchId không hợp lệ.");
+			}
+			branchRepository.findByIdAndDeletedFalse(restoreBranchId)
+					.orElseThrow(() -> new BusinessException(ErrorCode.BRANCH_NOT_FOUND, "Không tìm thấy chi nhánh."));
+			boolean linked = staffAssignmentRepository.existsByUserIdAndBranchId(staffId, restoreBranchId)
+					|| branchRepository.existsByIdAndDeletedFalseAndManager_Id(restoreBranchId, staffId);
+			if (!linked) {
+				throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+						"Nhân viên không có liên kết với chi nhánh được chọn để khôi phục.");
+			}
+		} else {
+			restoreBranchId = getManagerBranchId(actorUserId);
+			assertActorCanAccessStaffRead(actorUserId, false, staffId, user);
+		}
+
+		user.setDeleted(false);
+		user.setStatus("active");
+		userRepository.save(user);
+
+		ensureActiveBranchLinkAfterRestore(staffId, restoreBranchId);
+
+		User reloaded = userRepository.findByIdWithRoles(staffId).orElse(user);
+		Map<Integer, String> branchNames = loadBranchNameMap();
+		StaffAssignment active = staffAssignmentRepository.findFirstByUserIdAndActiveTrueOrderByIdDesc(staffId)
+				.orElse(null);
+		return toListItem(reloaded, branchNames, active, restoreBranchId);
+	}
+
+	/** Nếu không còn quản lý chi nhánh tại đây, tạo phân công hoạt động mới tại {@code branchId}. */
+	private void ensureActiveBranchLinkAfterRestore(long staffUserId, int branchId) {
+		if (branchRepository.existsByIdAndDeletedFalseAndManager_Id(branchId, staffUserId)) {
+			return;
+		}
+		boolean hasActiveHere = staffAssignmentRepository.findByUserIdAndActiveTrue(staffUserId).stream()
+				.anyMatch(sa -> sa.getBranchId() != null && sa.getBranchId() == branchId);
+		if (hasActiveHere) {
+			return;
+		}
+		StaffAssignment sa = new StaffAssignment();
+		sa.setUserId(staffUserId);
+		sa.setBranchId(branchId);
+		sa.setStartDate(LocalDate.now());
+		sa.setActive(true);
+		staffAssignmentRepository.save(sa);
+	}
+
 	@Transactional(readOnly = true)
 	public List<StaffAssignmentItemDto> listAssignments(long staffId, long actorUserId, boolean isAdmin) {
-		loadStaffUser(staffId);
-		assertActorCanManageStaff(actorUserId, isAdmin, staffId);
+		User target = loadStaffUserIncludingDeleted(staffId);
+		assertActorCanAccessStaffRead(actorUserId, isAdmin, staffId, target);
 		Map<Integer, String> branchNames = loadBranchNameMap();
 		return staffAssignmentRepository.findByUserIdOrderByStartDateDesc(staffId).stream()
 				.map(sa -> StaffAssignmentItemDto.builder()
@@ -303,6 +370,36 @@ public class StaffService {
 				.orElse(false);
 	}
 
+	/**
+	 * Cho phép xem lịch sử phân công kể cả nhân viên đã soft-delete, nếu từng thuộc chi nhánh của actor (hoặc admin).
+	 */
+	private void assertActorCanAccessStaffRead(long actorUserId, boolean isAdmin, long staffUserId, User targetUser) {
+		if (isAdmin) {
+			return;
+		}
+		int branchId = getManagerBranchId(actorUserId);
+		if (Boolean.TRUE.equals(targetUser.getDeleted())) {
+			boolean historical = staffAssignmentRepository.existsByUserIdAndBranchId(staffUserId, branchId)
+					|| branchRepository.existsByIdAndDeletedFalseAndManager_Id(branchId, staffUserId);
+			if (!historical) {
+				throw new BusinessException(ErrorCode.STAFF_NOT_IN_BRANCH, "Nhân viên không thuộc chi nhánh của bạn.");
+			}
+			return;
+		}
+		if (!isUserLinkedToBranch(staffUserId, branchId)) {
+			throw new BusinessException(ErrorCode.STAFF_NOT_IN_BRANCH, "Nhân viên không thuộc chi nhánh của bạn.");
+		}
+	}
+
+	private User loadStaffUserIncludingDeleted(long userId) {
+		User u = userRepository.findByIdWithRoles(userId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.STAFF_NOT_FOUND, "Không tìm thấy nhân viên."));
+		if (!hasStaffRole(u)) {
+			throw new BusinessException(ErrorCode.STAFF_NOT_FOUND, "Không tìm thấy nhân viên.");
+		}
+		return u;
+	}
+
 	private User loadStaffUser(long userId) {
 		User u = userRepository.findActiveByIdWithRoles(userId)
 				.orElseThrow(() -> new BusinessException(ErrorCode.STAFF_NOT_FOUND, "Không tìm thấy nhân viên."));
@@ -319,10 +416,11 @@ public class StaffService {
 	private StaffListItemDto toListItem(User u, Map<Integer, String> branchNames) {
 		StaffAssignment cached = staffAssignmentRepository.findFirstByUserIdAndActiveTrueOrderByIdDesc(u.getId())
 				.orElse(null);
-		return toListItem(u, branchNames, cached);
+		return toListItem(u, branchNames, cached, null);
 	}
 
-	private StaffListItemDto toListItem(User u, Map<Integer, String> branchNames, StaffAssignment activeCached) {
+	private StaffListItemDto toListItem(User u, Map<Integer, String> branchNames, StaffAssignment activeCached,
+			Integer listFilterBranchId) {
 		Integer branchId = null;
 		String branchName = null;
 		if (activeCached != null) {
@@ -333,6 +431,18 @@ public class StaffService {
 			if (managed.isPresent()) {
 				branchId = managed.get().getId();
 				branchName = managed.get().getName();
+			} else if (Boolean.TRUE.equals(u.getDeleted()) && listFilterBranchId != null) {
+				Optional<StaffAssignment> atBranch = staffAssignmentRepository.findByUserIdOrderByStartDateDesc(u.getId())
+						.stream()
+						.filter(sa -> sa.getBranchId() == listFilterBranchId.intValue())
+						.findFirst();
+				if (atBranch.isPresent()) {
+					branchId = atBranch.get().getBranchId();
+					branchName = branchNames.get(branchId);
+				} else if (branchRepository.existsByIdAndDeletedFalseAndManager_Id(listFilterBranchId, u.getId())) {
+					branchId = listFilterBranchId;
+					branchName = branchNames.getOrDefault(listFilterBranchId, "");
+				}
 			}
 		}
 		return StaffListItemDto.builder()
@@ -345,6 +455,7 @@ public class StaffService {
 				.branchName(branchName != null ? branchName : "")
 				.status(u.getStatus())
 				.createdAt(u.getCreatedAt())
+				.deleted(Boolean.TRUE.equals(u.getDeleted()))
 				.build();
 	}
 

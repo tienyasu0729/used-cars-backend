@@ -144,6 +144,7 @@ public class GlobalExceptionHandler {
 			case PASSWORD_TOO_SHORT -> "Mật khẩu từ 8 đến 100 ký tự.";
 			case USER_NOT_FOUND -> "Không tìm thấy người dùng.";
 			case ACCOUNT_SUSPENDED -> "Tài khoản bị khóa.";
+			case PASSWORD_CHANGE_REQUIRED -> "Vui lòng đặt mật khẩu mới trước khi tiếp tục.";
 			case VALIDATION_FAILED -> "Dữ liệu không hợp lệ.";
 			case INTERNAL_SERVER_ERROR -> "Lỗi hệ thống.";
 			case VEHICLE_NOT_FOUND -> "Không tìm thấy xe.";
@@ -178,6 +179,9 @@ public class GlobalExceptionHandler {
 			case INVALID_VEHICLE_STATUS -> "Trạng thái xe không hợp lệ.";
 			case INVALID_VEHICLE_LIST -> "Danh sách xe không hợp lệ.";
 			case MAINTENANCE_NOT_FOUND -> "Không tìm thấy bản ghi bảo dưỡng.";
+			case USER_EMAIL_EXISTS -> "Email đã được sử dụng.";
+			case ROLE_NOT_FOUND -> "Không tìm thấy vai trò.";
+			case ROLE_IN_USE -> "Vai trò đang được gán cho người dùng, không thể xóa.";
 		};
 	}
 }

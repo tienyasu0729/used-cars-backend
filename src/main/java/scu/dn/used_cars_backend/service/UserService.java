@@ -63,7 +63,8 @@ public class UserService {
 				.avatarUrl(user.getAvatarUrl())
 				.dateOfBirth(user.getDateOfBirth())
 				.gender(user.getGender())
-				.role(roleName);
+				.role(roleName)
+				.passwordChangeRequired(Boolean.TRUE.equals(user.getPasswordChangeRequired()));
 		resolveProfileBranchId(user.getId(), roleName).ifPresent(b::branchId);
 		return b.build();
 	}

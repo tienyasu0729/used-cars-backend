@@ -25,4 +25,6 @@ public class UserProfileDto {
 	private LocalDate dateOfBirth;
 	/** male | female | other */
 	private String gender;
+	/** true → client phải chuyển sang màn đặt mật khẩu mới trước khi dùng app. */
+	private Boolean passwordChangeRequired;
 }

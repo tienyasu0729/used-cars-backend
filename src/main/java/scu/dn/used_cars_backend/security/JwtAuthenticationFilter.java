@@ -82,6 +82,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 				errorWriter.write(response, ErrorCode.ACCOUNT_SUSPENDED, "Tài khoản bị khóa.", request.getRequestURI());
 				return;
 			}
+			if (Boolean.TRUE.equals(user.getPasswordChangeRequired()) && !isPasswordChangeMandatoryExempt(request)) {
+				errorWriter.write(response, ErrorCode.PASSWORD_CHANGE_REQUIRED,
+						"Vui lòng đặt mật khẩu mới trước khi tiếp tục.", request.getRequestURI());
+				return;
+			}
 			String authority = "ROLE_" + roleName.toUpperCase().replace(' ', '_');
 			UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(user.getEmail(), null,
 					List.of(new SimpleGrantedAuthority(authority)));
@@ -96,5 +101,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 		finally {
 			SecurityContextHolder.clearContext();
 		}
+	}
+
+	/** Cho phép đặt MK mới bắt buộc và đăng xuất khi đang bị khóa API bởi cờ password_change_required. */
+	private static boolean isPasswordChangeMandatoryExempt(HttpServletRequest request) {
+		if (!"POST".equalsIgnoreCase(request.getMethod())) {
+			return false;
+		}
+		String uri = request.getRequestURI();
+		return uri.contains("/auth/complete-required-password-change") || uri.contains("/auth/logout");
 	}
 }

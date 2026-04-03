@@ -50,6 +50,11 @@ public class AuthService {
 		}
 		String roleName = resolvePrimaryRoleName(user);
 		String token = jwtService.generateToken(user.getId(), user.getEmail(), roleName);
+		UserProfileDto profile = buildLoginProfile(user, roleName);
+		return new LoginResponse(profile, token);
+	}
+
+	private UserProfileDto buildLoginProfile(User user, String roleName) {
 		UserProfileDto profile = UserProfileDto.builder()
 				.id(user.getId())
 				.name(user.getName())
@@ -60,6 +65,7 @@ public class AuthService {
 				.dateOfBirth(user.getDateOfBirth())
 				.gender(user.getGender())
 				.role(roleName)
+				.passwordChangeRequired(Boolean.TRUE.equals(user.getPasswordChangeRequired()))
 				.build();
 
 		if (roleName.equals("BranchManager") || roleName.equals("SalesStaff")) {
@@ -71,8 +77,7 @@ public class AuthService {
 						.ifPresent(profile::setBranchId);
 			}
 		}
-
-		return new LoginResponse(profile, token);
+		return profile;
 	}
 
 	@Transactional
@@ -91,6 +96,7 @@ public class AuthService {
 		user.setAuthProvider("local");
 		user.setStatus("active");
 		user.setDeleted(false);
+		user.setPasswordChangeRequired(false);
 		UserRole link = new UserRole();
 		link.setUser(user);
 		link.setRole(customerRole);
@@ -111,10 +117,37 @@ public class AuthService {
 	}
 
 	@Transactional
+	public LoginResponse completeRequiredPasswordChange(long userId, String newPassword) {
+		User user = userRepository.findByIdAndDeletedFalse(userId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "Không tìm thấy người dùng."));
+		if (!Boolean.TRUE.equals(user.getPasswordChangeRequired())) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Tài khoản không yêu cầu đặt mật khẩu mới.");
+		}
+		if (newPassword.length() < 8 || newPassword.length() > 100) {
+			throw new BusinessException(ErrorCode.PASSWORD_TOO_SHORT, "Mật khẩu từ 8 đến 100 ký tự.");
+		}
+		if (passwordEncoder.matches(newPassword, user.getPasswordHash())) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Mật khẩu mới phải khác mật khẩu tạm hiện tại.");
+		}
+		user.setPasswordHash(passwordEncoder.encode(newPassword));
+		user.setPasswordChangeRequired(false);
+		userRepository.save(user);
+		String roleName = resolvePrimaryRoleName(user);
+		UserProfileDto profile = buildLoginProfile(user, roleName);
+		profile.setPasswordChangeRequired(false);
+		String token = jwtService.generateToken(user.getId(), user.getEmail(), roleName);
+		return new LoginResponse(profile, token);
+	}
+
+	@Transactional
 	public void changePassword(long userId, String currentPassword, String newPassword) {
 		// B1: Lấy user từ DB
 		User user = userRepository.findByIdAndDeletedFalse(userId)
 				.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "Không tìm thấy người dùng."));
+		if (Boolean.TRUE.equals(user.getPasswordChangeRequired())) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+					"Bạn đang dùng mật khẩu tạm. Vui lòng hoàn tất màn hình đặt mật khẩu mới sau đăng nhập.");
+		}
 		// B2: Kiểm tra mật khẩu hiện tại
 		if (user.getPasswordHash() == null || !passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
 			throw new BusinessException(ErrorCode.INVALID_CURRENT_PASSWORD, "Mật khẩu hiện tại không đúng.");
@@ -128,6 +161,7 @@ public class AuthService {
 		}
 		// B4: Hash và lưu
 		user.setPasswordHash(passwordEncoder.encode(newPassword));
+		user.setPasswordChangeRequired(false);
 		userRepository.save(user);
 	}
 }

@@ -12,11 +12,15 @@ import java.util.Optional;
 
 public interface StaffAssignmentRepository extends JpaRepository<StaffAssignment, Long> {
 
+	long countByBranchIdAndActiveTrue(int branchId);
+
 	boolean existsByUserIdAndBranchIdAndActiveTrue(Long userId, Integer branchId);
 
 	Optional<StaffAssignment> findFirstByUserIdAndActiveTrueOrderByIdDesc(Long userId);
 
 	List<StaffAssignment> findByUserIdOrderByStartDateDesc(Long userId);
+
+	boolean existsByUserIdAndBranchId(Long userId, Integer branchId);
 
 	List<StaffAssignment> findByUserIdAndActiveTrue(Long userId);
 

@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import scu.dn.used_cars_backend.common.api.ApiResponse;
 import scu.dn.used_cars_backend.dto.manager.CreateStaffRequest;
+import scu.dn.used_cars_backend.dto.manager.RestoreStaffRequest;
 import scu.dn.used_cars_backend.dto.manager.StaffAssignmentItemDto;
 import scu.dn.used_cars_backend.dto.manager.StaffListItemDto;
 import scu.dn.used_cars_backend.dto.manager.TransferStaffRequest;
@@ -85,6 +86,17 @@ public class ManagerStaffController {
 		boolean admin = isAdmin(authentication);
 		staffService.softDeleteStaff(id, userId, admin);
 		return ResponseEntity.ok(ApiResponse.<Void>success(null));
+	}
+
+	@PostMapping("/{id}/restore")
+	public ResponseEntity<ApiResponse<StaffListItemDto>> restore(@PathVariable long id,
+			@RequestBody(required = false) RestoreStaffRequest request,
+			Authentication authentication) {
+		long userId = AuthenticationDetailsUtils.requireUserId(authentication);
+		boolean admin = isAdmin(authentication);
+		Integer branchId = request != null ? request.getBranchId() : null;
+		StaffListItemDto dto = staffService.restoreStaff(id, branchId, userId, admin);
+		return ResponseEntity.ok(ApiResponse.success(dto));
 	}
 
 	@GetMapping("/{id}/assignments")

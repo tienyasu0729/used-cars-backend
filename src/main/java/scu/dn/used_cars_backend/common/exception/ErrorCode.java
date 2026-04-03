@@ -13,6 +13,8 @@ public enum ErrorCode {
 	PASSWORD_TOO_SHORT(HttpStatus.BAD_REQUEST, "PASSWORD_TOO_SHORT"),
 	USER_NOT_FOUND(HttpStatus.NOT_FOUND, "USER_NOT_FOUND"),
 	ACCOUNT_SUSPENDED(HttpStatus.FORBIDDEN, "ACCOUNT_SUSPENDED"),
+	/** JWT hợp lệ nhưng user phải hoàn tất đặt mật khẩu mới (sau reset admin). */
+	PASSWORD_CHANGE_REQUIRED(HttpStatus.FORBIDDEN, "PASSWORD_CHANGE_REQUIRED"),
 	VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED"),
 	INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_SERVER_ERROR"),
 
@@ -62,7 +64,12 @@ public enum ErrorCode {
 	/** Danh sách xe rỗng hoặc không hợp lệ */
 	INVALID_VEHICLE_LIST(HttpStatus.BAD_REQUEST, "INVALID_VEHICLE_LIST"),
 	/** Bản ghi bảo dưỡng không tìm thấy */
-	MAINTENANCE_NOT_FOUND(HttpStatus.NOT_FOUND, "MAINTENANCE_NOT_FOUND");
+	MAINTENANCE_NOT_FOUND(HttpStatus.NOT_FOUND, "MAINTENANCE_NOT_FOUND"),
+
+	// Sprint 5 — Admin users / roles
+	USER_EMAIL_EXISTS(HttpStatus.CONFLICT, "USER_EMAIL_EXISTS"),
+	ROLE_NOT_FOUND(HttpStatus.NOT_FOUND, "ROLE_NOT_FOUND"),
+	ROLE_IN_USE(HttpStatus.CONFLICT, "ROLE_IN_USE");
 
 	private final HttpStatus httpStatus;
 	private final String code;

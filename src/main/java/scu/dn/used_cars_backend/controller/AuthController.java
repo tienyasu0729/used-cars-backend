@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import scu.dn.used_cars_backend.common.api.ApiResponse;
+import scu.dn.used_cars_backend.dto.auth.CompleteRequiredPasswordRequest;
 import scu.dn.used_cars_backend.dto.auth.ChangePasswordRequest;
 import scu.dn.used_cars_backend.dto.auth.LoginRequest;
 import scu.dn.used_cars_backend.dto.auth.LoginResponse;
@@ -38,6 +39,15 @@ public class AuthController {
 	@PostMapping("/register")
 	public ResponseEntity<ApiResponse<RegisterResponse>> register(@Valid @RequestBody RegisterRequest request) {
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(authService.register(request)));
+	}
+
+	@PostMapping("/complete-required-password-change")
+	public ResponseEntity<ApiResponse<LoginResponse>> completeRequiredPasswordChange(
+			@Valid @RequestBody CompleteRequiredPasswordRequest body,
+			Authentication authentication) {
+		long userId = AuthenticationDetailsUtils.requireUserId(authentication);
+		LoginResponse out = authService.completeRequiredPasswordChange(userId, body.getNewPassword());
+		return ResponseEntity.ok(ApiResponse.success(out));
 	}
 
 	@PostMapping("/change-password")

@@ -60,6 +60,7 @@ public class SecurityConfig {
 						.requestMatchers(HttpMethod.POST, "/api/v1/vehicles/*/view").permitAll()
 						.requestMatchers(HttpMethod.GET, "/api/v1/bookings/available-slots").permitAll()
 						.requestMatchers("/error").permitAll()
+						.requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
 						.requestMatchers("/api/v1/manager/staff/**").hasAnyRole("ADMIN", "BRANCHMANAGER")
 						.requestMatchers("/api/v1/manager/settings/**").hasAnyRole("ADMIN", "BRANCHMANAGER")
 						.requestMatchers("/api/v1/manager/dashboard/**").hasAnyRole("ADMIN", "BRANCHMANAGER")

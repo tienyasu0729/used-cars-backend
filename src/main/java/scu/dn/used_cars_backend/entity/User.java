@@ -5,6 +5,8 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+
+import org.hibernate.annotations.BatchSize;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -55,6 +57,11 @@ public class User extends BaseEntity {
 	@Column(name = "is_deleted", nullable = false)
 	private Boolean deleted = false;
 
+	/** true sau khi admin đặt lại MK tạm — user phải đặt MK mới trước khi dùng API khác. */
+	@Column(name = "password_change_required", nullable = false)
+	private Boolean passwordChangeRequired = false;
+
+	@BatchSize(size = 32)
 	@OneToMany(mappedBy = "user", cascade = CascadeType.PERSIST, orphanRemoval = false)
 	private Set<UserRole> userRoles = new HashSet<>();
 }

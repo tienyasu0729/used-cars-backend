@@ -212,6 +212,15 @@ public class GlobalExceptionHandler {
 			case ROLE_IN_USE -> "Vai trò đang được gán cho người dùng, không thể xóa.";
 			case RESOURCE_NOT_FOUND -> "Không tìm thấy tài nguyên.";
 			case ORDER_NOT_FOUND -> "Không tìm thấy đơn hàng.";
+			case DEPOSIT_NOT_FOUND -> "Không tìm thấy khoản đặt cọc.";
+			case VEHICLE_ALREADY_DEPOSITED -> "Xe đã có đặt cọc đang hiệu lực.";
+			case DEPOSIT_CANNOT_CANCEL -> "Không thể hủy khoản đặt cọc này.";
+			case DEPOSIT_CANNOT_CONFIRM -> "Không thể xác nhận khoản đặt cọc này.";
+			case DEPOSIT_ACCESS_DENIED -> "Không có quyền truy cập khoản đặt cọc này.";
+			case ORDER_INVALID_STATUS_TRANSITION -> "Chuyển trạng thái đơn hàng không hợp lệ.";
+			case ORDER_CANNOT_CANCEL -> "Không thể hủy đơn hàng này.";
+			case ORDER_ACCESS_DENIED -> "Không có quyền truy cập đơn hàng này.";
+			case PAYMENT_EXCEEDS_REMAINING -> "Số tiền thanh toán vượt số còn lại.";
 			case PAYMENT_FORBIDDEN -> "Không có quyền thanh toán đơn này.";
 			case PAYMENT_AMOUNT_MISMATCH -> "Số tiền không khớp tiền cọc hoặc số còn lại.";
 			case NOTIFICATION_NOT_FOUND -> "Không tìm thấy thông báo.";

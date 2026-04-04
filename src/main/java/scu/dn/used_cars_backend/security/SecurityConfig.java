@@ -63,6 +63,7 @@ public class SecurityConfig {
 						.requestMatchers(HttpMethod.GET, "/api/v1/payment/vnpay/ipn").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/v1/payment/vnpay/ipn").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/v1/payment/zalopay/callback").permitAll()
+						.requestMatchers("/api/v1/webhook/**").permitAll()
 						.requestMatchers("/error").permitAll()
 						.requestMatchers("/ws/**").permitAll()
 						.requestMatchers("/api/v1/admin/**").hasRole("ADMIN")

@@ -1,0 +1,523 @@
+package scu.dn.used_cars_backend.service;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import scu.dn.used_cars_backend.common.exception.BusinessException;
+import scu.dn.used_cars_backend.common.exception.ErrorCode;
+import scu.dn.used_cars_backend.dto.sales.CancelDepositRequest;
+import scu.dn.used_cars_backend.dto.sales.CreateDepositRequest;
+import scu.dn.used_cars_backend.dto.sales.CreateDepositResponse;
+import scu.dn.used_cars_backend.dto.sales.DepositListItemDto;
+import scu.dn.used_cars_backend.entity.Deposit;
+import scu.dn.used_cars_backend.entity.FinancialTransaction;
+import scu.dn.used_cars_backend.entity.User;
+import scu.dn.used_cars_backend.entity.Vehicle;
+import scu.dn.used_cars_backend.entity.VehicleStatus;
+import scu.dn.used_cars_backend.repository.DepositRepository;
+import scu.dn.used_cars_backend.repository.FinancialTransactionRepository;
+import scu.dn.used_cars_backend.repository.UserRepository;
+import scu.dn.used_cars_backend.repository.VehicleRepository;
+import scu.dn.used_cars_backend.service.payment.PaymentGatewayConfigService;
+import scu.dn.used_cars_backend.service.payment.VnpayService;
+import scu.dn.used_cars_backend.service.payment.ZaloPayService;
+
+import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+@Service
+@RequiredArgsConstructor
+public class DepositService {
+
+	private static final Logger log = LoggerFactory.getLogger(DepositService.class);
+	private static final String ROLE_CUSTOMER = "CUSTOMER";
+	private static final String ROLE_ADMIN = "ADMIN";
+	private static final ZoneId VN = ZoneId.of("Asia/Ho_Chi_Minh");
+	private static final DateTimeFormatter ZP_TRANS_DAY = DateTimeFormatter.ofPattern("yyMMdd");
+	private final DepositRepository depositRepository;
+	private final VehicleRepository vehicleRepository;
+	private final UserRepository userRepository;
+	private final FinancialTransactionRepository financialTransactionRepository;
+	private final StaffService staffService;
+	private final PaymentGatewayConfigService paymentGatewayConfigService;
+	private final VnpayService vnpayService;
+	private final ZaloPayService zaloPayService;
+	private final ObjectMapper objectMapper;
+
+	@Transactional(rollbackFor = Exception.class)
+	public CreateDepositResponse create(long actorUserId, String jwtRole, CreateDepositRequest req, String clientIp) {
+		// B1: Resolve customer va validate
+		long customerId = resolveCustomerId(actorUserId, jwtRole, req);
+		validateActiveCustomer(customerId);
+
+		// B2: Load xe voi lock de tranh race condition
+		Vehicle v = vehicleRepository.findByIdAndDeletedFalseForUpdate(req.getVehicleId())
+				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
+		assertActorCanUseVehicle(actorUserId, jwtRole, v);
+		releaseStaleReservedVehicleIfNeeded(v);
+
+		// B3: Kiem tra xe con Available
+		if (!VehicleStatus.AVAILABLE.getDbValue().equals(v.getStatus())) {
+			throw new BusinessException(ErrorCode.VEHICLE_NOT_AVAILABLE, "Xe không khả dụng để đặt cọc.");
+		}
+
+		// B4: Kiem tra khong co deposit Pending/Confirmed nao khac
+		// (Cho phep nhieu AwaitingPayment cung luc — ai thanh toan xong truoc se lay duoc xe)
+		if (depositRepository.countByVehicleIdAndStatusIn(v.getId(), List.of("Pending", "Confirmed")) > 0) {
+			throw new BusinessException(ErrorCode.VEHICLE_ALREADY_DEPOSITED, "Xe đã có đặt cọc đang hiệu lực.");
+		}
+
+		LocalDate depositDate = parseDateOrToday(req.getDepositDate());
+		LocalDate expiryDate = parseExpiry(req.getExpiryDate(), depositDate);
+		String methodRaw = req.getPaymentMethod().trim();
+		String pm = methodRaw.toLowerCase();
+
+		// B5: Tao deposit record
+		Deposit d = new Deposit();
+		d.setCustomerId(customerId);
+		d.setVehicleId(v.getId());
+		d.setAmount(req.getAmount());
+		d.setPaymentMethod(methodRaw);
+		d.setDepositDate(depositDate);
+		d.setExpiryDate(expiryDate);
+		d.setNotes(req.getNote());
+		d.setCreatedBy(actorUserId);
+
+		// B6: Phan biet online vs cash
+		if ("vnpay".equals(pm) || "zalopay".equals(pm)) {
+			// Online: status = AwaitingPayment, KHONG set xe RESERVED, KHONG tao FinancialTransaction
+			d.setStatus("AwaitingPayment");
+			depositRepository.save(d);
+		} else {
+			// Cash/offline: giu nguyen flow cu
+			d.setStatus("Pending");
+			depositRepository.save(d);
+			// Tao FinancialTransaction
+			FinancialTransaction tx = new FinancialTransaction();
+			tx.setUserId(customerId);
+			tx.setType("Deposit");
+			tx.setAmount(req.getAmount());
+			tx.setStatus("Pending");
+			tx.setDescription("Dat coc xe #" + d.getId());
+			tx.setReferenceId(d.getId());
+			tx.setReferenceType("Deposit");
+			financialTransactionRepository.save(tx);
+			// Set xe RESERVED (chi voi cash)
+			v.setStatus(VehicleStatus.RESERVED.getDbValue());
+			vehicleRepository.save(v);
+		}
+
+		// B7: Build payment URL cho online
+		String paymentUrl = null;
+		if ("vnpay".equals(pm)) {
+			var cfg = paymentGatewayConfigService.loadVnpayForCreate();
+			String txnRef = "D" + d.getId() + "T" + Long.toHexString(System.nanoTime());
+			d.setPaymentGateway("vnpay");
+			d.setGatewayTxnRef(txnRef);
+			String info = "Dat coc id " + d.getId();
+			VnpayService.VnpayPayUrlResult built = vnpayService.buildPaymentUrl(cfg, txnRef, req.getAmount(), info,
+					clientIp);
+			d.setGatewayTransRef(built.vnpCreateDate());
+			depositRepository.save(d);
+			paymentUrl = built.paymentUrl();
+		}
+		else if ("zalopay".equals(pm)) {
+			var cfg = paymentGatewayConfigService.loadZaloPayForCreate();
+			String appTransId = LocalDate.now(VN).format(ZP_TRANS_DAY) + "_" + d.getId() + "_"
+					+ Long.toHexString(System.nanoTime());
+			if (appTransId.length() > 40) {
+				appTransId = appTransId.substring(0, 40);
+			}
+			d.setPaymentGateway("zalopay");
+			d.setGatewayTxnRef(appTransId);
+			depositRepository.save(d);
+			String base = paymentGatewayConfigService.frontendBaseUrl().replaceAll("/$", "");
+			String redirect = base + "/payment/result?kind=zalo_deposit&depositId=" + d.getId() + "&vehicleId=" + v.getId();
+			String embed;
+			try {
+				embed = objectMapper.writeValueAsString(Map.of("redirecturl", redirect));
+			}
+			catch (JsonProcessingException e) {
+				throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "Không tạo embed_data ZaloPay.");
+			}
+			String orderUrl = zaloPayService.createOrderAndGetPayUrl(cfg, appTransId, req.getAmount().longValueExact(),
+					String.valueOf(customerId), "Dat coc xe #" + d.getId(), embed);
+			if (orderUrl == null || orderUrl.isBlank()) {
+				throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "ZaloPay thiếu order_url.");
+			}
+			d.setGatewayOrderUrl(orderUrl);
+			depositRepository.save(d);
+			paymentUrl = orderUrl;
+		}
+
+		if (("vnpay".equals(pm) || "zalopay".equals(pm))
+				&& (paymentUrl == null || paymentUrl.isBlank())) {
+			throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR,
+					"Không tạo được liên kết thanh toán. Kiểm tra cấu hình VNPay/ZaloPay.");
+		}
+
+		return CreateDepositResponse.builder()
+				.id(d.getId())
+				.vehicleId(v.getId())
+				.amount(d.getAmount().toPlainString())
+				.status(d.getStatus())
+				.paymentUrl(paymentUrl)
+				.depositDate(d.getDepositDate().toString())
+				.expiryDate(d.getExpiryDate().toString())
+				.build();
+	}
+
+	@Transactional(readOnly = true)
+	public List<DepositListItemDto> page(long actorUserId, String jwtRole, String status, int page, int size) {
+		PageRequest pr = PageRequest.of(Math.max(0, page), Math.min(Math.max(1, size), 100));
+		Page<Deposit> pg = switch (jwtRole) {
+			// Customer: dung pageForCustomerVisible de an AwaitingPayment va Cancelled online
+			case ROLE_CUSTOMER -> depositRepository.pageForCustomerVisible(actorUserId, blankToNull(status), pr);
+			case ROLE_ADMIN -> depositRepository.pageAll(blankToNull(status), pr);
+			default -> {
+				int bid = staffService.getManagerBranchId(actorUserId);
+				yield depositRepository.pageForBranch(bid, blankToNull(status), pr);
+			}
+		};
+		return pg.getContent().stream().map(d -> toListItem(d)).toList();
+	}
+
+	@Transactional(readOnly = true)
+	public Map<String, Object> pageMeta(long actorUserId, String jwtRole, String status, int page, int size) {
+		PageRequest pr = PageRequest.of(Math.max(0, page), Math.min(Math.max(1, size), 100));
+		Page<Deposit> pg = switch (jwtRole) {
+			// Customer: dung pageForCustomerVisible de an AwaitingPayment va Cancelled online
+			case ROLE_CUSTOMER -> depositRepository.pageForCustomerVisible(actorUserId, blankToNull(status), pr);
+			case ROLE_ADMIN -> depositRepository.pageAll(blankToNull(status), pr);
+			default -> {
+				int bid = staffService.getManagerBranchId(actorUserId);
+				yield depositRepository.pageForBranch(bid, blankToNull(status), pr);
+			}
+		};
+		Map<String, Object> m = new HashMap<>();
+		m.put("totalElements", pg.getTotalElements());
+		m.put("totalPages", pg.getTotalPages());
+		m.put("page", pg.getNumber());
+		m.put("size", pg.getSize());
+		return m;
+	}
+
+	@Transactional(rollbackFor = Exception.class)
+	public DepositListItemDto getById(long actorUserId, String jwtRole, long depositId) {
+		Deposit d = depositRepository.findById(depositId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.DEPOSIT_NOT_FOUND, "Không tìm thấy cọc."));
+		assertCanViewDeposit(actorUserId, jwtRole, d);
+		if (ROLE_CUSTOMER.equals(jwtRole) && cancelIfExpiredOnlineDeposit(depositId)) {
+			d = depositRepository.findById(depositId).orElse(d);
+		}
+		return toListItem(d);
+	}
+
+	@Transactional(rollbackFor = Exception.class)
+	public void cancel(long actorUserId, String jwtRole, long depositId, CancelDepositRequest body) {
+		Deposit d = depositRepository.findById(depositId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.DEPOSIT_NOT_FOUND, "Không tìm thấy cọc."));
+		assertCanModifyDeposit(actorUserId, jwtRole, d);
+		if ("Confirmed".equals(d.getStatus())) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+					"Cọc đã xác nhận thanh toán — dùng yêu cầu hủy có lý do (cancel-confirmed).");
+		}
+		if (!"Pending".equals(d.getStatus())) {
+			throw new BusinessException(ErrorCode.DEPOSIT_CANNOT_CANCEL, "Trạng thái cọc không cho phép hủy.");
+		}
+		if (body != null && body.getReason() != null && !body.getReason().isBlank()) {
+			String n = d.getNotes() != null ? d.getNotes() + " | " : "";
+			d.setNotes(n + "Huy: " + body.getReason().trim());
+		}
+		finalizeDepositCancellation(d);
+	}
+
+	@Transactional(rollbackFor = Exception.class)
+	public void cancelConfirmedDeposit(long actorUserId, String jwtRole, long depositId, String reason) {
+		if (reason == null || reason.isBlank()) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Lý do hủy là bắt buộc.");
+		}
+		Deposit d = depositRepository.findById(depositId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.DEPOSIT_NOT_FOUND, "Không tìm thấy cọc."));
+		if (!"Confirmed".equals(d.getStatus())) {
+			throw new BusinessException(ErrorCode.DEPOSIT_CANNOT_CANCEL,
+					"Chỉ có thể hủy cọc đã xác nhận (Confirmed) bằng luồng này.");
+		}
+		boolean admin = ROLE_ADMIN.equals(jwtRole);
+		boolean owner = ROLE_CUSTOMER.equals(jwtRole) && d.getCustomerId() == actorUserId;
+		if (!admin && !owner) {
+			throw new BusinessException(ErrorCode.DEPOSIT_ACCESS_DENIED, "Không có quyền hủy cọc đã xác nhận.");
+		}
+		String trimmed = reason.trim();
+		Instant now = Instant.now();
+		String audit = "HUY_CONFIRMED|by=" + actorUserId + "|at=" + now + "|reason=" + trimmed.replace('|', '/');
+		String n = d.getNotes() != null ? d.getNotes() + " | " : "";
+		d.setNotes(n + audit);
+		finalizeDepositCancellation(d);
+	}
+
+	@Transactional(rollbackFor = Exception.class)
+	public void cancelPendingDepositAfterOnlinePaymentDeclined(long depositId) {
+		Deposit d = depositRepository.findById(depositId).orElse(null);
+		if (d == null) {
+			return;
+		}
+		// Xu ly ca AwaitingPayment va Pending
+		if (!"Pending".equals(d.getStatus()) && !"AwaitingPayment".equals(d.getStatus())) {
+			log.warn("Attempted to cancel deposit {} via payment failure flow. Status: {}", depositId,
+					d.getStatus());
+			return;
+		}
+		// Luu status goc truoc khi doi de quyet dinh co can tra xe khong
+		String originalStatus = d.getStatus();
+		String n = d.getNotes() != null ? d.getNotes() + " | " : "";
+		d.setNotes(n + "Huy: Thanh toan khong thanh cong (tu dong)");
+		// AwaitingPayment: xe chua bao gio bi lock -> khong can tra ve
+		// Pending (cash da lock xe truoc do): can tra xe ve AVAILABLE
+		finalizeDepositCancellationWithOriginalStatus(d, originalStatus);
+	}
+
+	private void finalizeDepositCancellation(Deposit d) {
+		finalizeDepositCancellationWithOriginalStatus(d, d.getStatus());
+	}
+
+	// Huy deposit va tra xe ve AVAILABLE neu can
+	// originalStatus: status goc truoc khi doi thanh Cancelled
+	private void finalizeDepositCancellationWithOriginalStatus(Deposit d, String originalStatus) {
+		d.setStatus("Cancelled");
+		depositRepository.save(d);
+		depositRepository.flush();
+		// Chi update FinancialTransaction neu co (AwaitingPayment khong co transaction)
+		financialTransactionRepository.findByReferenceTypeAndReferenceId("Deposit", d.getId()).ifPresent(tx -> {
+			tx.setStatus("Failed");
+			financialTransactionRepository.save(tx);
+		});
+		// AwaitingPayment: xe chua bao gio bi lock -> khong can tra ve AVAILABLE
+		if ("AwaitingPayment".equals(originalStatus)) {
+			return;
+		}
+		// Pending/Confirmed da lock xe truoc do -> kiem tra va tra ve AVAILABLE
+		long stillActive = depositRepository.countByVehicleIdAndStatusIn(d.getVehicleId(), List.of("Pending", "Confirmed"));
+		if (stillActive == 0) {
+			vehicleRepository.findById(d.getVehicleId()).ifPresent(v -> {
+				if (VehicleStatus.RESERVED.getDbValue().equals(v.getStatus())) {
+					v.setStatus(VehicleStatus.AVAILABLE.getDbValue());
+					vehicleRepository.save(v);
+					vehicleRepository.flush();
+				}
+			});
+		}
+	}
+
+	@Transactional(rollbackFor = Exception.class)
+	public void cancelPendingOnlineDepositTimedOut(long depositId) {
+		Deposit d = depositRepository.findById(depositId).orElse(null);
+		// Xu ly ca Pending va AwaitingPayment
+		if (d == null || (!"Pending".equals(d.getStatus()) && !"AwaitingPayment".equals(d.getStatus()))) {
+			return;
+		}
+		String gw = d.getPaymentGateway();
+		if (gw == null || (!"vnpay".equalsIgnoreCase(gw.trim()) && !"zalopay".equalsIgnoreCase(gw.trim()))) {
+			return;
+		}
+		String originalStatus = d.getStatus();
+		String n = d.getNotes() != null ? d.getNotes() + " | " : "";
+		d.setNotes(n + "Huy: Qua thoi han thanh toan online (tu dong)");
+		finalizeDepositCancellationWithOriginalStatus(d, originalStatus);
+	}
+
+	@Transactional(rollbackFor = Exception.class)
+	public boolean cancelIfExpiredOnlineDeposit(long depositId) {
+		Deposit d = depositRepository.findById(depositId).orElse(null);
+		// Xu ly ca Pending va AwaitingPayment
+		if (d == null || (!"Pending".equals(d.getStatus()) && !"AwaitingPayment".equals(d.getStatus()))) return false;
+		String gw = d.getPaymentGateway();
+		if (gw == null || gw.isBlank()) return false;
+		if (d.getCreatedAt() == null) return false;
+		long minutesAgo = Duration.between(d.getCreatedAt(), Instant.now()).toMinutes();
+		if (minutesAgo < 16) return false;
+		String originalStatus = d.getStatus();
+		String n = d.getNotes() != null ? d.getNotes() + " | " : "";
+		d.setNotes(n + "Huy: Qua thoi han thanh toan online (tu dong khi query)");
+		finalizeDepositCancellationWithOriginalStatus(d, originalStatus);
+		return true;
+	}
+
+	@Transactional(readOnly = true)
+	public List<Long> findPendingOnlineDepositIdsExpiredBefore(Instant cutoff) {
+		return depositRepository.findPendingOnlineDepositIdsCreatedBefore(cutoff);
+	}
+
+	public static int parseOnlinePaymentTimeoutMinutes(String raw) {
+		if (raw == null || raw.isBlank()) {
+			return 15;
+		}
+		try {
+			int m = Integer.parseInt(raw.trim());
+			return m >= 1 && m <= 24 * 60 ? m : 15;
+		}
+		catch (NumberFormatException e) {
+			return 15;
+		}
+	}
+
+	@Transactional(rollbackFor = Exception.class)
+	public void confirm(long actorUserId, String jwtRole, long depositId) {
+		Deposit d = depositRepository.findById(depositId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.DEPOSIT_NOT_FOUND, "Không tìm thấy cọc."));
+		Vehicle v = vehicleRepository.findById(d.getVehicleId())
+				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
+		if (!ROLE_ADMIN.equals(jwtRole)) {
+			int bid = staffService.getManagerBranchId(actorUserId);
+			if (v.getBranch().getId() != bid) {
+				throw new BusinessException(ErrorCode.DEPOSIT_ACCESS_DENIED, "Cọc không thuộc chi nhánh của bạn.");
+			}
+		}
+		if (!"Pending".equals(d.getStatus())) {
+			throw new BusinessException(ErrorCode.DEPOSIT_CANNOT_CONFIRM, "Chỉ cọc Chờ xác nhận mới được duyệt.");
+		}
+		d.setStatus("Confirmed");
+		depositRepository.save(d);
+		financialTransactionRepository.findByReferenceTypeAndReferenceId("Deposit", d.getId()).ifPresent(tx -> {
+			tx.setStatus("Completed");
+			financialTransactionRepository.save(tx);
+		});
+	}
+
+	private long resolveCustomerId(long actorUserId, String jwtRole, CreateDepositRequest req) {
+		if (ROLE_CUSTOMER.equals(jwtRole)) {
+			return actorUserId;
+		}
+		if (req.getCustomerId() == null) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "customerId là bắt buộc.");
+		}
+		return req.getCustomerId();
+	}
+
+	private void validateActiveCustomer(long userId) {
+		User u = userRepository.findActiveByIdWithRoles(userId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "Không tìm thấy khách hàng."));
+		boolean isCustomer = u.getUserRoles().stream().anyMatch(ur -> "Customer".equals(ur.getRole().getName()));
+		if (!isCustomer) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Người dùng không phải khách hàng.");
+		}
+	}
+
+	private void releaseStaleReservedVehicleIfNeeded(Vehicle v) {
+		if (!VehicleStatus.RESERVED.getDbValue().equals(v.getStatus())) {
+			return;
+		}
+		long active = depositRepository.countByVehicleIdAndStatusIn(v.getId(), List.of("Pending", "Confirmed"));
+		if (active == 0) {
+			v.setStatus(VehicleStatus.AVAILABLE.getDbValue());
+			vehicleRepository.save(v);
+		}
+	}
+
+	private void assertActorCanUseVehicle(long actorUserId, String jwtRole, Vehicle v) {
+		if (ROLE_ADMIN.equals(jwtRole) || ROLE_CUSTOMER.equals(jwtRole)) {
+			return;
+		}
+		int bid = staffService.getManagerBranchId(actorUserId);
+		if (v.getBranch().getId() != bid) {
+			throw new BusinessException(ErrorCode.DEPOSIT_ACCESS_DENIED, "Xe không thuộc chi nhánh của bạn.");
+		}
+	}
+
+	private void assertCanViewDeposit(long actorUserId, String jwtRole, Deposit d) {
+		if (ROLE_ADMIN.equals(jwtRole)) {
+			return;
+		}
+		if (ROLE_CUSTOMER.equals(jwtRole)) {
+			if (d.getCustomerId() != actorUserId) {
+				throw new BusinessException(ErrorCode.DEPOSIT_ACCESS_DENIED, "Không có quyền xem cọc này.");
+			}
+			return;
+		}
+		Vehicle v = vehicleRepository.findById(d.getVehicleId())
+				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
+		int bid = staffService.getManagerBranchId(actorUserId);
+		if (v.getBranch().getId() != bid) {
+			throw new BusinessException(ErrorCode.DEPOSIT_ACCESS_DENIED, "Không có quyền xem cọc này.");
+		}
+	}
+
+	private void assertCanModifyDeposit(long actorUserId, String jwtRole, Deposit d) {
+		if (ROLE_ADMIN.equals(jwtRole)) {
+			return;
+		}
+		if (ROLE_CUSTOMER.equals(jwtRole)) {
+			if (d.getCustomerId() != actorUserId) {
+				throw new BusinessException(ErrorCode.DEPOSIT_ACCESS_DENIED, "Không có quyền hủy cọc này.");
+			}
+			return;
+		}
+		assertCanViewDeposit(actorUserId, jwtRole, d);
+	}
+
+	private DepositListItemDto toListItem(Deposit d) {
+		String vehicleTitle = vehicleRepository.findById(d.getVehicleId()).map(Vehicle::getTitle).orElse("-");
+		String customerName = userRepository.findByIdAndDeletedFalse(d.getCustomerId()).map(User::getName).orElse("-");
+		String st = d.getStatus();
+		if ("Converted".equals(st)) {
+			st = "ConvertedToOrder";
+		}
+		String oid = d.getOrderId() == null ? null : String.valueOf(d.getOrderId());
+		return DepositListItemDto.builder()
+				.id(String.valueOf(d.getId()))
+				.vehicleId(String.valueOf(d.getVehicleId()))
+				.customerId(String.valueOf(d.getCustomerId()))
+				.customerName(customerName)
+				.vehicleTitle(vehicleTitle)
+				.amount(d.getAmount().longValue())
+				.depositDate(d.getDepositDate().toString())
+				.expiryDate(d.getExpiryDate().toString())
+				.status(st)
+				.orderId(oid)
+				.build();
+	}
+
+	private static String blankToNull(String s) {
+		return s == null || s.isBlank() ? null : s.trim();
+	}
+
+	private static LocalDate parseDateOrToday(String s) {
+		if (s == null || s.isBlank()) {
+			return LocalDate.now();
+		}
+		try {
+			return LocalDate.parse(s.trim(), DateTimeFormatter.ISO_LOCAL_DATE);
+		}
+		catch (DateTimeParseException e) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "depositDate không hợp lệ.");
+		}
+	}
+
+	private static LocalDate parseExpiry(String s, LocalDate depositDate) {
+		if (s == null || s.isBlank()) {
+			return depositDate.plusDays(7);
+		}
+		try {
+			return LocalDate.parse(s.trim(), DateTimeFormatter.ISO_LOCAL_DATE);
+		}
+		catch (DateTimeParseException e) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "expiryDate không hợp lệ.");
+		}
+	}
+}

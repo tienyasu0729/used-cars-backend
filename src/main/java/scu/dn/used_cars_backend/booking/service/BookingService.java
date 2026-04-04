@@ -49,7 +49,7 @@ public class BookingService {
 	private final BranchRepository branchRepository;
 	private final BranchOpeningHoursProvider openingHoursProvider;
 
-	@Transactional
+	@Transactional(rollbackFor = Exception.class)
 	public BookingResponse createBooking(CreateBookingRequest request, long customerId) {
 		LocalDate bookingDate = parseDate(request.getBookingDate());
 		LocalTime timeSlot = parseTime(request.getTimeSlot());

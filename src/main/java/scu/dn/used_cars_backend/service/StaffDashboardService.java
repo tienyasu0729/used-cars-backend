@@ -10,9 +10,9 @@ import scu.dn.used_cars_backend.entity.VehicleStatus;
 import scu.dn.used_cars_backend.repository.SalesOrderRepository;
 import scu.dn.used_cars_backend.repository.VehicleRepository;
 
-import java.time.DayOfWeek;
+import java.time.Instant;
 import java.time.LocalDate;
-import java.time.temporal.TemporalAdjusters;
+import java.time.temporal.ChronoUnit;
 
 @Service
 @RequiredArgsConstructor
@@ -25,12 +25,10 @@ public class StaffDashboardService {
 	@Transactional(readOnly = true)
 	public StaffDashboardStatsResponse getStats(int branchId) {
 		LocalDate today = LocalDate.now();
-		LocalDate weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
-		LocalDate weekEnd = today.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY));
 		long todayBookings = bookingRepository.countTodayAtBranchExcludingCancelled(branchId, today);
 		long pendingConsultations = bookingRepository.countPendingAtBranch(branchId);
-		long weeklyOrders = salesOrderRepository.countCreatedDateBetweenAtBranchExcludingCancelled(branchId, weekStart,
-				weekEnd);
+		Instant weekAgo = Instant.now().minus(7, ChronoUnit.DAYS);
+		long weeklyOrders = salesOrderRepository.countSinceAtBranch(branchId, weekAgo);
 		long availableVehicles = vehicleRepository.countByBranchIdAndDeletedFalseAndStatus(branchId,
 				VehicleStatus.AVAILABLE.getDbValue());
 		return StaffDashboardStatsResponse.builder()

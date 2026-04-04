@@ -13,11 +13,14 @@ import scu.dn.used_cars_backend.dto.auth.UserProfileDto;
 import scu.dn.used_cars_backend.entity.User;
 import scu.dn.used_cars_backend.entity.Branch;
 import scu.dn.used_cars_backend.repository.BranchRepository;
+import scu.dn.used_cars_backend.repository.DepositRepository;
+import scu.dn.used_cars_backend.repository.SalesOrderRepository;
 import scu.dn.used_cars_backend.repository.StaffAssignmentRepository;
 import scu.dn.used_cars_backend.repository.UserRepository;
 import scu.dn.used_cars_backend.interaction.repository.SavedVehicleRepository;
 
 import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
 
 // Hồ sơ người dùng: cập nhật tên/SĐT, avatar, thống kê dashboard khách.
@@ -32,6 +35,8 @@ public class UserService {
 	private final BranchRepository branchRepository;
 	private final SavedVehicleRepository savedVehicleRepository;
 	private final BookingRepository bookingRepository;
+	private final DepositRepository depositRepository;
+	private final SalesOrderRepository salesOrderRepository;
 	private final CloudinaryUploadService cloudinaryUploadService;
 
 	@Transactional
@@ -110,12 +115,13 @@ public class UserService {
 		long saved = savedVehicleRepository.countByIdUserId(userId);
 		// B2: Lịch Pending/Confirmed
 		long upcoming = bookingRepository.countUpcomingByCustomerId(userId);
-		// TODO: Will be implemented in later sprint (Tier 4 — activeDeposits / totalOrders từ DB thật)
+		long activeDeposits = depositRepository.countByCustomerIdAndStatusIn(userId, List.of("Pending", "Confirmed"));
+		long totalOrders = salesOrderRepository.countByCustomerId(userId);
 		return CustomerStatsResponse.builder()
 				.savedVehicles(saved)
 				.upcomingBookings(upcoming)
-				.activeDeposits(0)
-				.totalOrders(0)
+				.activeDeposits(activeDeposits)
+				.totalOrders(totalOrders)
 				.build();
 	}
 

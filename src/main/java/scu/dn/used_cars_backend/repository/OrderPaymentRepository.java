@@ -6,6 +6,7 @@ import org.springframework.data.repository.query.Param;
 
 import scu.dn.used_cars_backend.entity.OrderPayment;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 
@@ -18,4 +19,7 @@ public interface OrderPaymentRepository extends JpaRepository<OrderPayment, Long
 
 	@Query("SELECT p FROM OrderPayment p JOIN FETCH p.order o JOIN FETCH o.branch WHERE o.id = :orderId ORDER BY p.id ASC")
 	List<OrderPayment> findByOrderIdWithOrderAndBranch(@Param("orderId") long orderId);
+
+	@Query("select coalesce(sum(p.amount), 0) from OrderPayment p where p.order.id = :orderId and p.status = 'Completed'")
+	BigDecimal sumCompletedAmountByOrderId(@Param("orderId") long orderId);
 }

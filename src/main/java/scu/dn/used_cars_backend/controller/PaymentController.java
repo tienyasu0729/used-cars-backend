@@ -2,9 +2,9 @@ package scu.dn.used_cars_backend.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -15,17 +15,20 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import scu.dn.used_cars_backend.common.api.ApiResponse;
+import scu.dn.used_cars_backend.common.web.HttpServletClientIp;
 import scu.dn.used_cars_backend.dto.payment.OrderPaymentStaffRowDto;
 import scu.dn.used_cars_backend.dto.payment.PaymentCreateRequest;
 import scu.dn.used_cars_backend.dto.payment.PaymentUrlResponse;
+import scu.dn.used_cars_backend.dto.payment.VnpayClientReturnPayload;
 import scu.dn.used_cars_backend.dto.payment.VnpayOrderPaymentActionRequest;
+import scu.dn.used_cars_backend.dto.payment.ZaloPayStatusResponse;
 import scu.dn.used_cars_backend.security.AuthenticationDetailsUtils;
 import scu.dn.used_cars_backend.service.payment.PaymentApplicationService;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -40,7 +43,7 @@ public class PaymentController {
 	public ResponseEntity<ApiResponse<PaymentUrlResponse>> createVnpay(@Valid @RequestBody PaymentCreateRequest body,
 			Authentication authentication, HttpServletRequest request) {
 		long uid = AuthenticationDetailsUtils.requireUserId(authentication);
-		String ip = clientIp(request);
+		String ip = HttpServletClientIp.resolve(request);
 		return ResponseEntity.ok(ApiResponse.success(paymentApplicationService.createVnpay(uid, body, ip)));
 	}
 
@@ -66,7 +69,7 @@ public class PaymentController {
 			Authentication authentication, HttpServletRequest request) {
 		long uid = AuthenticationDetailsUtils.requireUserId(authentication);
 		JsonNode n = paymentApplicationService.staffQueryVnpay(uid, isAdmin(authentication), body.getOrderPaymentId(),
-				clientIp(request));
+				HttpServletClientIp.resolve(request));
 		return ResponseEntity.ok(ApiResponse.success(n));
 	}
 
@@ -80,13 +83,32 @@ public class PaymentController {
 			createBy = "uid:" + uid;
 		}
 		JsonNode n = paymentApplicationService.staffRefundVnpay(uid, isAdmin(authentication), body.getOrderPaymentId(),
-				clientIp(request), createBy, body.getOrderInfo());
+				HttpServletClientIp.resolve(request), createBy, body.getOrderInfo());
 		return ResponseEntity.ok(ApiResponse.success(n));
 	}
 
 	@GetMapping("/vnpay/return")
-	public void vnpayReturn(HttpServletRequest request, HttpServletResponse response) throws IOException {
-		paymentApplicationService.handleVnpayReturn(request, response);
+	public ResponseEntity<?> vnpayReturn(HttpServletRequest request,
+			@RequestParam(value = "json", required = false) String json) {
+		VnpayClientReturnPayload payload = paymentApplicationService.completeVnpayReturnAndBuildPayload(request);
+		boolean wantJson = "1".equals(json) || "true".equalsIgnoreCase(json)
+				|| (request.getHeader("Accept") != null && request.getHeader("Accept").contains("application/json"));
+		if (wantJson) {
+			return ResponseEntity.ok(ApiResponse.success(payload));
+		}
+		return ResponseEntity.status(HttpStatus.FOUND)
+				.location(paymentApplicationService.buildVnpayFrontendResultUri(payload))
+				.build();
+	}
+
+	@GetMapping("/zalopay/status")
+	public ResponseEntity<ApiResponse<ZaloPayStatusResponse>> zaloPayStatus(
+			@RequestParam(required = false) Long orderId,
+			@RequestParam(required = false) Long depositId,
+			Authentication authentication) {
+		long uid = AuthenticationDetailsUtils.requireUserId(authentication);
+		ZaloPayStatusResponse r = paymentApplicationService.customerQueryZaloPayStatus(uid, orderId, depositId);
+		return ResponseEntity.ok(ApiResponse.success(r));
 	}
 
 	@GetMapping(value = "/vnpay/ipn", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -102,16 +124,6 @@ public class PaymentController {
 	@PostMapping(value = "/zalopay/callback", produces = MediaType.APPLICATION_JSON_VALUE)
 	public Map<String, Object> zaloCallback(@RequestBody String body) {
 		return paymentApplicationService.handleZaloCallback(body);
-	}
-
-	private static String clientIp(HttpServletRequest request) {
-		String xff = request.getHeader("X-Forwarded-For");
-		if (xff != null && !xff.isBlank()) {
-			int c = xff.indexOf(',');
-			return c > 0 ? xff.substring(0, c).trim() : xff.trim();
-		}
-		String ip = request.getRemoteAddr();
-		return ip != null ? ip : "127.0.0.1";
 	}
 
 	private static boolean isAdmin(Authentication authentication) {

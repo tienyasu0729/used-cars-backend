@@ -4,8 +4,11 @@ package scu.dn.used_cars_backend.repository;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import jakarta.persistence.LockModeType;
+
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -151,5 +154,9 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 			where v.deleted = false and lower(trim(coalesce(v.transmission, ''))) = lower(trim(:label))
 			""")
 	long countActiveByTransmissionLabel(@Param("label") String label);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select v from Vehicle v where v.id = :id and v.deleted = false")
+	Optional<Vehicle> findByIdAndDeletedFalseForUpdate(@Param("id") Long id);
 
 }

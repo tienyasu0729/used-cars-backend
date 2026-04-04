@@ -10,7 +10,6 @@ import org.springframework.web.client.RestClient;
 import scu.dn.used_cars_backend.common.exception.BusinessException;
 import scu.dn.used_cars_backend.common.exception.ErrorCode;
 
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -24,8 +23,13 @@ public class ZaloPayService {
 
 	public String createOrderAndGetPayUrl(PaymentGatewayConfigService.ZaloPayRuntimeConfig cfg, String appTransId,
 			long amountVnd, String appUser, String description) {
+		return createOrderAndGetPayUrl(cfg, appTransId, amountVnd, appUser, description, null);
+	}
+
+	public String createOrderAndGetPayUrl(PaymentGatewayConfigService.ZaloPayRuntimeConfig cfg, String appTransId,
+			long amountVnd, String appUser, String description, String embedDataJson) {
 		long appTime = Instant.now().toEpochMilli();
-		String embedData = "{}";
+		String embedData = embedDataJson != null && !embedDataJson.isBlank() ? embedDataJson.trim() : "{}";
 		String item = "[]";
 		int appId = parseAppId(cfg.appId());
 		String macData = cfg.appId() + "|" + appTransId + "|" + appUser + "|" + amountVnd + "|" + appTime + "|"
@@ -91,6 +95,57 @@ public class ZaloPayService {
 		catch (Exception e) {
 			return objectMapper.createObjectNode();
 		}
+	}
+
+	public JsonNode queryOrderStatus(PaymentGatewayConfigService.ZaloPayRuntimeConfig cfg, String appTransId) {
+		if (appTransId == null || appTransId.isBlank()) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Thiếu app_trans_id.");
+		}
+		String url = resolveQueryEndpoint(cfg.endpoint());
+		int appId = parseAppId(cfg.appId());
+		String macData = appId + "|" + appTransId.trim() + "|" + cfg.key1();
+		String mac = PaymentHmacUtil.hmacSha256Hex(cfg.key1(), macData);
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("app_id", appId);
+		body.put("app_trans_id", appTransId.trim());
+		body.put("mac", mac);
+		String json;
+		try {
+			json = objectMapper.writeValueAsString(body);
+		}
+		catch (Exception e) {
+			throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "Không tạo được body query ZaloPay.");
+		}
+		String raw = restClient.post()
+				.uri(url)
+				.contentType(MediaType.APPLICATION_JSON)
+				.body(json)
+				.retrieve()
+				.body(String.class);
+		if (raw == null || raw.isBlank()) {
+			throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "ZaloPay query không phản hồi.");
+		}
+		try {
+			return objectMapper.readTree(raw);
+		}
+		catch (Exception e) {
+			throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "Không đọc được phản hồi query ZaloPay.");
+		}
+	}
+
+	private static String resolveQueryEndpoint(String createEndpoint) {
+		String e = createEndpoint == null ? "" : createEndpoint.trim();
+		if (e.isEmpty()) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Thiếu zalopay_endpoint.");
+		}
+		if (e.contains("/v2/create")) {
+			return e.replace("/v2/create", "/v2/query");
+		}
+		if (e.endsWith("/create")) {
+			return e.substring(0, e.length() - "/create".length()) + "/query";
+		}
+		throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+				"zalopay_endpoint phải chứa /v2/create hoặc kết thúc bằng /create.");
 	}
 
 	private static int parseAppId(String appId) {

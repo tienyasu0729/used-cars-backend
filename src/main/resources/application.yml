@@ -2,7 +2,7 @@ spring:
   application:
     name: used-cars-backend
 
-  # application-local.yml (gitignored): DB, Redis, JWT, Cloudinary, port — copy máy khác khi cần.
+  # application-local.yml (gitignored): DB, Redis, JWT, Cloudinary, cổng thanh toán (app.payment), port — xem docs/config/application-local-payment.example.yml.
   # Có thể ghi đè bằng biến môi trường: DB_URL, DB_USER, DB_PASSWORD, REDIS_*, SERVER_PORT, JWT_*, CLOUDINARY_*.
   config:
     import: optional:classpath:application-local.yml
@@ -71,3 +71,22 @@ app:
     cloud-name: ${CLOUDINARY_CLOUD_NAME:}
     api-key: ${CLOUDINARY_API_KEY:}
     api-secret: ${CLOUDINARY_API_SECRET:}
+
+  payment:
+    frontend-base-url: ${APP_FRONTEND_BASE_URL:}
+    vnpay:
+      tmn-code: ${VNPAY_TMN_CODE:}
+      hash-secret: ${VNPAY_HASH_SECRET:}
+      pay-url: ${VNPAY_PAY_URL:}
+      return-url: ${VNPAY_RETURN_URL:}
+      ipn-url: ${VNPAY_IPN_URL:}
+      merchant-api-url: ${VNPAY_MERCHANT_API_URL:}
+      customer-ip-fallback: ${VNPAY_CUSTOMER_IP_FALLBACK:}
+      order-type: ${VNPAY_ORDER_TYPE:}
+      hmac-algorithm: ${VNPAY_HMAC_ALGORITHM:}
+    zalopay:
+      app-id: ${ZALOPAY_APP_ID:}
+      key1: ${ZALOPAY_KEY1:}
+      key2: ${ZALOPAY_KEY2:}
+      endpoint: ${ZALOPAY_ENDPOINT:}
+      callback-url: ${ZALOPAY_CALLBACK_URL:}

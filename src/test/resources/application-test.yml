@@ -21,3 +21,17 @@ app:
   jwt:
     secret: testTestTestTestTestTestTestTestTestSecretKey32Chars!!
     expiration-ms: 3600000
+  payment:
+    frontend-base-url: http://localhost:5173
+    vnpay:
+      tmn-code: TESTTMN01
+      hash-secret: test-vnpay-hash-secret-32chars-minimum-length
+      pay-url: https://sandbox.vnpayment.vn/paymentv2/vpcpay.html
+      return-url: http://localhost:8080/api/v1/payment/vnpay/return
+      ipn-url: http://localhost:8080/api/v1/payment/vnpay/ipn
+    zalopay:
+      app-id: "2553"
+      key1: testZaloKey1ForIntegrationTestsOnly
+      key2: testZaloKey2ForIntegrationTestsOnly
+      endpoint: https://sb-openapi.zalopay.vn/v2/create
+      callback-url: http://localhost:8080/api/v1/payment/zalopay/callback

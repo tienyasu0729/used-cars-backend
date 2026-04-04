@@ -1,6 +1,8 @@
 package scu.dn.used_cars_backend.audit;
 
 import jakarta.servlet.http.HttpServletRequest;
+
+import scu.dn.used_cars_backend.common.web.HttpServletClientIp;
 import lombok.RequiredArgsConstructor;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
@@ -127,10 +129,6 @@ public class UnifiedApiAuditAspect {
 	}
 
 	private static String clientIp(HttpServletRequest req) {
-		String xff = req.getHeader("X-Forwarded-For");
-		if (xff != null && !xff.isBlank()) {
-			return xff.split(",")[0].trim();
-		}
-		return req.getRemoteAddr();
+		return HttpServletClientIp.resolve(req);
 	}
 }

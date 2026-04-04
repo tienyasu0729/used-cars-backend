@@ -110,6 +110,34 @@ public class VehicleService {
 		return body;
 	}
 
+	/**
+	 * So sánh công khai: 2–3 xe, cùng điều kiện hiển thị như chi tiết công khai.
+	 */
+	@Transactional(readOnly = true)
+	public java.util.List<VehicleDetailDto> comparePublic(java.util.List<Long> ids) {
+		if (ids == null || ids.size() < 2 || ids.size() > 3) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Chỉ so sánh từ 2 đến 3 xe.");
+		}
+		long distinct = ids.stream().distinct().count();
+		if (distinct != ids.size()) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Danh sách xe không được trùng lặp.");
+		}
+		java.util.List<Vehicle> found = vehicleRepository.findPublicByIds(ids);
+		java.util.Map<Long, Vehicle> byId = new java.util.HashMap<>();
+		for (Vehicle v : found) {
+			byId.put(v.getId(), v);
+		}
+		java.util.List<VehicleDetailDto> out = new java.util.ArrayList<>();
+		for (Long id : ids) {
+			Vehicle v = byId.get(id);
+			if (v == null) {
+				throw new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe.");
+			}
+			out.add(toDetailDto(v));
+		}
+		return out;
+	}
+
 	@Transactional(readOnly = true)
 	public VehicleDetailDto getPublicDetail(long id) {
 		// B1: thử lấy từ cache chi tiết
@@ -137,8 +165,13 @@ public class VehicleService {
 	@Transactional(readOnly = true)
 	public VehicleListResponse listForManager(long actorUserId, boolean isAdmin, Integer categoryId,
 			Integer subcategoryId, java.math.BigDecimal minPrice, java.math.BigDecimal maxPrice, Integer yearMin,
-			Integer yearMax, String transmission, Integer branchId, int page, int size, String sort, String scope) {
+			Integer yearMax, String transmission, Integer branchId, int page, int size, String sort, String scope,
+			String vehicleStatusFilter) {
 		String tx = transmission != null && !transmission.isBlank() ? transmission.trim() : null;
+		String vs = vehicleStatusFilter != null && !vehicleStatusFilter.isBlank()
+				&& !"all".equalsIgnoreCase(vehicleStatusFilter.trim())
+						? vehicleStatusFilter.trim()
+						: null;
 		String sortKey = normalizeListSortKey(sort);
 		Sort sortObj = listSortForPublicList(sortKey);
 		int pg = Math.max(0, page);
@@ -153,7 +186,7 @@ public class VehicleService {
 			return buildVehicleListResponse(p);
 		}
 
-		int sz = Math.min(100, Math.max(1, size));
+		int sz = Math.min(500, Math.max(1, size));
 		PageRequest pr = PageRequest.of(pg, sz, sortObj);
 
 		List<Integer> branchIds;
@@ -170,7 +203,7 @@ public class VehicleService {
 		}
 
 		Page<Vehicle> p = vehicleRepository.findManagedPage(branchIds, categoryId, subcategoryId, minPrice, maxPrice,
-				yearMin, yearMax, tx, branchId, pr);
+				yearMin, yearMax, tx, branchId, vs, pr);
 		return buildVehicleListResponse(p);
 	}
 

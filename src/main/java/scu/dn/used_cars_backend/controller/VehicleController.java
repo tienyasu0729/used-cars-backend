@@ -18,6 +18,8 @@ import scu.dn.used_cars_backend.dto.vehicle.VehicleListResponse;
 import scu.dn.used_cars_backend.service.VehicleService;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/vehicles")
@@ -25,6 +27,38 @@ import java.math.BigDecimal;
 public class VehicleController {
 
 	private final VehicleService vehicleService;
+
+	/** So sánh 2–3 xe công khai — query {@code ids=1,2,3} */
+	@GetMapping("/compare")
+	public ResponseEntity<ApiResponse<List<VehicleDetailDto>>> compare(@RequestParam String ids) {
+		List<Long> idList = parseCompareIds(ids);
+		List<VehicleDetailDto> data = vehicleService.comparePublic(idList);
+		return ResponseEntity.ok(ApiResponse.success(data));
+	}
+
+	private static List<Long> parseCompareIds(String raw) {
+		if (raw == null || raw.isBlank()) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Thiếu tham số ids.");
+		}
+		String[] parts = raw.split(",");
+		List<Long> out = new ArrayList<>();
+		for (String p : parts) {
+			String t = p != null ? p.trim() : "";
+			if (t.isEmpty()) {
+				continue;
+			}
+			try {
+				out.add(Long.parseLong(t));
+			}
+			catch (NumberFormatException e) {
+				throw new BusinessException(ErrorCode.VALIDATION_FAILED, "ids không hợp lệ.");
+			}
+		}
+		if (out.isEmpty()) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Thiếu tham số ids.");
+		}
+		return out;
+	}
 
 	@GetMapping
 	public ResponseEntity<ApiResponse<VehicleListResponse>> list(@RequestParam(defaultValue = "0") int page,

@@ -15,6 +15,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import scu.dn.used_cars_backend.entity.Branch;
+import scu.dn.used_cars_backend.entity.User;
 import scu.dn.used_cars_backend.entity.Vehicle;
 
 import java.time.Instant;
@@ -35,6 +36,10 @@ public class Booking {
 
 	@Column(name = "customer_id", nullable = false)
 	private Long customerId;
+
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "customer_id", referencedColumnName = "id", insertable = false, updatable = false)
+	private User customer;
 
 	@ManyToOne(fetch = FetchType.LAZY, optional = false)
 	@JoinColumn(name = "vehicle_id", nullable = false)

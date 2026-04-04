@@ -16,7 +16,7 @@ import java.util.Optional;
 
 public interface BookingRepository extends JpaRepository<Booking, Long> {
 
-	@EntityGraph(attributePaths = { "vehicle", "vehicle.category", "vehicle.subcategory", "branch" })
+	@EntityGraph(attributePaths = { "vehicle", "vehicle.category", "vehicle.subcategory", "branch", "customer" })
 	@Query("""
 			select b from Booking b
 			where b.customerId = :customerId
@@ -25,7 +25,7 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 	Page<Booking> findByCustomerIdAndOptionalStatus(@Param("customerId") long customerId,
 			@Param("status") String status, Pageable pageable);
 
-	@EntityGraph(attributePaths = { "vehicle", "vehicle.category", "vehicle.subcategory", "branch" })
+	@EntityGraph(attributePaths = { "vehicle", "vehicle.category", "vehicle.subcategory", "branch", "customer" })
 	@Query("""
 			select b from Booking b
 			where b.branch.id = :branchId
@@ -34,7 +34,7 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 	Page<Booking> findByBranchIdAndOptionalStatus(@Param("branchId") int branchId, @Param("status") String status,
 			Pageable pageable);
 
-	@EntityGraph(attributePaths = { "vehicle", "vehicle.category", "vehicle.subcategory", "branch" })
+	@EntityGraph(attributePaths = { "vehicle", "vehicle.category", "vehicle.subcategory", "branch", "customer" })
 	@Query("select b from Booking b where b.id = :id")
 	Optional<Booking> findWithDetailsById(@Param("id") long id);
 
@@ -82,7 +82,7 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 			@Param("time") LocalTime time, @Param("statuses") Collection<String> statuses,
 			@Param("excludeId") long excludeId);
 
-	@EntityGraph(attributePaths = { "vehicle", "vehicle.category", "vehicle.subcategory", "branch" })
+	@EntityGraph(attributePaths = { "vehicle", "vehicle.category", "vehicle.subcategory", "branch", "customer" })
 	@Query("""
 			select b from Booking b
 			where b.branch.id = :branchId

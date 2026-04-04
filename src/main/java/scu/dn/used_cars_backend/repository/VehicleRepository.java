@@ -52,6 +52,10 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 			Pageable pageable);
 
 	@EntityGraph(attributePaths = { "category", "subcategory", "branch", "branch.manager", "images" })
+	@Query("select v from Vehicle v where v.id in :ids and v.deleted = false and v.status <> 'Hidden'")
+	List<Vehicle> findPublicByIds(@Param("ids") Collection<Long> ids);
+
+	@EntityGraph(attributePaths = { "category", "subcategory", "branch", "branch.manager", "images" })
 	@Query("select v from Vehicle v where v.id = :id and v.deleted = false and v.status <> 'Hidden'")
 	Optional<Vehicle> findPublicDetailById(@Param("id") Long id);
 
@@ -74,6 +78,7 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 			and (:yearMax is null or (v.year is not null and v.year <= :yearMax))
 			and (:transmission is null or v.transmission = :transmission)
 			and (:branchId is null or v.branch.id = :branchId)
+			and (:vehicleStatus is null or v.status = :vehicleStatus)
 			""")
 	Page<Vehicle> findManagedPage(@Param("branchIds") Collection<Integer> branchIds,
 			@Param("categoryId") Integer categoryId,
@@ -84,6 +89,7 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 			@Param("yearMax") Integer yearMax,
 			@Param("transmission") String transmission,
 			@Param("branchId") Integer branchId,
+			@Param("vehicleStatus") String vehicleStatus,
 			Pageable pageable);
 
 	@Query("select v from Vehicle v where v.id = :id and v.deleted = false and v.status = :status")

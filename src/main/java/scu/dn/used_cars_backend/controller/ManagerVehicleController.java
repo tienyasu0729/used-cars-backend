@@ -59,12 +59,13 @@ public class ManagerVehicleController {
 			@RequestParam(required = false) Integer branchId,
 			@RequestParam(required = false) String sort,
 			@RequestParam(required = false) String scope,
+			@RequestParam(required = false) String status,
 			Authentication authentication) {
 		long userId = requireUserId(authentication);
 		boolean admin = isAdmin(authentication);
 		Integer categoryId = brand;
 		VehicleListResponse data = vehicleService.listForManager(userId, admin, categoryId, subcategoryId, minPrice,
-				maxPrice, yearMin, yearMax, transmission, branchId, page, size, sort, scope);
+				maxPrice, yearMin, yearMax, transmission, branchId, page, size, sort, scope, status);
 		return ResponseEntity.ok(ApiResponse.success(data));
 	}
 

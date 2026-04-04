@@ -21,6 +21,10 @@ public class BookingResponse {
 
 	private Long customerId;
 
+	private String customerName;
+
+	private String customerPhone;
+
 	private Long vehicleId;
 
 	private String vehicleTitle;

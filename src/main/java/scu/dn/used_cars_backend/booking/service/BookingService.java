@@ -261,9 +261,17 @@ public class BookingService {
 					.map(this::toHistDto)
 					.toList();
 		}
+		String custName = null;
+		String custPhone = null;
+		if (b.getCustomer() != null) {
+			custName = b.getCustomer().getName();
+			custPhone = b.getCustomer().getPhone();
+		}
 		return BookingResponse.builder()
 				.id(b.getId())
 				.customerId(b.getCustomerId())
+				.customerName(custName)
+				.customerPhone(custPhone)
 				.vehicleId(v.getId())
 				.vehicleTitle(title)
 				.vehicleListingId(v.getListingId())

@@ -57,6 +57,13 @@ public class OrderPayment {
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
 
+	// Không dùng @Lob: trên SQL Server Flyway/script thường tạo NVARCHAR(MAX); @Lob map sang CLOB/varchar(max) → validate lệch kiểu.
+	@Column(name = "last_gateway_query_json", columnDefinition = "NVARCHAR(MAX)")
+	private String lastGatewayQueryJson;
+
+	@Column(name = "last_gateway_query_at")
+	private Instant lastGatewayQueryAt;
+
 	@PrePersist
 	void onCreate() {
 		if (createdAt == null) {

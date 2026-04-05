@@ -28,6 +28,9 @@ public class GlobalExceptionHandler {
 	@ExceptionHandler(BusinessException.class)
 	public ResponseEntity<ApiErrorResponse> handleBusiness(BusinessException ex, HttpServletRequest request) {
 		ErrorCode ec = ex.getErrorCode();
+		log.warn("[BusinessException] {} {} → {} {}: {}",
+				request.getMethod(), request.getRequestURI(),
+				ec.getHttpStatus().value(), ec.getCode(), ex.getMessage());
 		ApiErrorResponse body = ApiErrorResponse.builder()
 				.timestamp(Instant.now())
 				.status(ec.getHttpStatus().value())
@@ -87,7 +90,7 @@ public class GlobalExceptionHandler {
 	public ResponseEntity<ApiErrorResponse> handleDataIntegrity(DataIntegrityViolationException ex,
 			HttpServletRequest request) {
 		String causeMsg = ex.getMostSpecificCause().getMessage();
-		log.warn("Data integrity violation: {}", causeMsg);
+		log.warn("[DataIntegrity] {} {} → {}", request.getMethod(), request.getRequestURI(), causeMsg);
 		if (causeMsg != null && causeMsg.contains("UQ_Bookings_VehicleSlot")) {
 			ApiErrorResponse body = ApiErrorResponse.builder()
 					.timestamp(Instant.now())

@@ -236,14 +236,27 @@ public class OrderService {
 		if (req.getAmount().compareTo(o.getRemainingAmount()) > 0) {
 			throw new BusinessException(ErrorCode.PAYMENT_EXCEEDS_REMAINING, "Vượt số tiền còn lại.");
 		}
+		String pm = req.getPaymentMethod().trim().toLowerCase();
+		if ("bank_transfer".equals(pm)) {
+			pm = "cash";
+		}
 		OrderPayment p = new OrderPayment();
 		p.setOrder(o);
 		p.setAmount(req.getAmount());
-		p.setPaymentMethod(req.getPaymentMethod().trim());
+		p.setPaymentMethod(pm);
 		p.setStatus("Completed");
-		p.setTransactionRef(req.getTransactionRef() != null ? req.getTransactionRef().trim() : null);
+		String ref = req.getTransactionRef() != null ? req.getTransactionRef().trim() : null;
+		p.setTransactionRef(ref != null && !ref.isEmpty() ? ref : null);
 		p.setPaidAt(Instant.now());
 		orderPaymentRepository.save(p);
+		if ("cash".equals(pm) && (p.getTransactionRef() == null || p.getTransactionRef().isBlank())) {
+			String autoRef = "CASH-O" + orderId + "-P" + p.getId() + "-" + Long.toHexString(System.nanoTime());
+			if (autoRef.length() > 100) {
+				autoRef = autoRef.substring(0, 100);
+			}
+			p.setTransactionRef(autoRef);
+			orderPaymentRepository.save(p);
+		}
 		o.setRemainingAmount(o.getRemainingAmount().subtract(req.getAmount()));
 		salesOrderRepository.save(o);
 	}

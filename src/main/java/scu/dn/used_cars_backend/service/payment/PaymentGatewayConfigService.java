@@ -35,6 +35,9 @@ public class PaymentGatewayConfigService {
 	public static final String KEY_ZALO_CALLBACK_URL = "zalopay_callback_url";
 	public static final String KEY_ZALO_ENABLED = "zalopay_enabled";
 
+	/** Bật ghi nhận tiền mặt (cọc / thu tay) cho staff & quản lý. Khách đặt cọc qua web không dùng flag này. */
+	public static final String KEY_CASH_ENABLED = "cash_enabled";
+
 	public static final String KEY_APP_FRONTEND_BASE_URL = "app_frontend_base_url";
 
 	private final SystemConfigRepository systemConfigRepository;
@@ -143,6 +146,25 @@ public class PaymentGatewayConfigService {
 	public void assertZaloPayEnabled() {
 		if (!isTruthy(KEY_ZALO_ENABLED)) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "ZaloPay chưa bật trong cấu hình.");
+		}
+	}
+
+	/**
+	 * Tiền mặt cho nội bộ. Mặc định bật nếu chưa có key trong DB (tương thích hệ thống cũ).
+	 */
+	@Transactional(readOnly = true)
+	public boolean isCashPaymentAllowed() {
+		String v = getOptionalFromDb(KEY_CASH_ENABLED);
+		if (v == null || v.isBlank()) {
+			return true;
+		}
+		return isTruthy(KEY_CASH_ENABLED);
+	}
+
+	@Transactional(readOnly = true)
+	public void assertCashPaymentAllowed() {
+		if (!isCashPaymentAllowed()) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Tiền mặt chưa bật trong cấu hình hệ thống.");
 		}
 	}
 

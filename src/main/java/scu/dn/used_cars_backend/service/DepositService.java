@@ -42,6 +42,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -75,9 +76,12 @@ public class DepositService {
 		long customerId = resolveCustomerId(actorUserId, jwtRole, req);
 		validateActiveCustomer(customerId);
 
-		// B2: Load xe voi lock de tranh race condition
-		Vehicle v = vehicleRepository.findByIdAndDeletedFalseForUpdate(req.getVehicleId())
+		// B2: Load xe voi lock de tranh race condition (tim ca xe bi an, validate sau)
+		Vehicle v = vehicleRepository.findByIdForUpdate(req.getVehicleId())
 				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
+		if (v.isDeleted()) {
+			throw new BusinessException(ErrorCode.VEHICLE_NOT_AVAILABLE, "Xe đã bị ẩn khỏi hệ thống, không thể đặt cọc.");
+		}
 		assertActorCanUseVehicle(actorUserId, jwtRole, v);
 		releaseStaleReservedVehicleIfNeeded(v);
 
@@ -92,15 +96,14 @@ public class DepositService {
 
 		LocalDate depositDate = parseDateOrToday(req.getDepositDate());
 		LocalDate expiryDate = parseExpiry(req.getExpiryDate(), depositDate);
-		String methodRaw = req.getPaymentMethod().trim();
-		String pm = methodRaw.toLowerCase();
+		String pm = normalizeAndAssertDepositPayment(jwtRole, req.getPaymentMethod());
 
 		// B5: Tao deposit record
 		Deposit d = new Deposit();
 		d.setCustomerId(customerId);
 		d.setVehicleId(v.getId());
 		d.setAmount(req.getAmount());
-		d.setPaymentMethod(methodRaw);
+		d.setPaymentMethod(pm);
 		d.setDepositDate(depositDate);
 		d.setExpiryDate(expiryDate);
 		d.setNotes(req.getNote());
@@ -129,6 +132,13 @@ public class DepositService {
 			v.setStatus(VehicleStatus.RESERVED.getDbValue());
 			vehicleRepository.save(v);
 			vehicleService.evictPublicVehicleCaches(v.getId());
+			d.setPaymentGateway("cash");
+			String cashRef = "CASH-D" + d.getId() + "-" + Long.toHexString(System.nanoTime());
+			if (cashRef.length() > 100) {
+				cashRef = cashRef.substring(0, 100);
+			}
+			d.setGatewayTxnRef(cashRef);
+			depositRepository.save(d);
 		}
 
 		// B7: Build payment URL cho online
@@ -475,7 +485,16 @@ public class DepositService {
 		if (ROLE_ADMIN.equals(jwtRole) || ROLE_CUSTOMER.equals(jwtRole)) {
 			return;
 		}
-		int bid = staffService.getManagerBranchId(actorUserId);
+		int bid;
+		try {
+			bid = staffService.getManagerBranchId(actorUserId);
+		} catch (BusinessException e) {
+			if (ErrorCode.BRANCH_NOT_FOUND.equals(e.getErrorCode())) {
+				throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+						"Tài khoản của bạn chưa được gán vào chi nhánh nào. Liên hệ Admin để thiết lập.");
+			}
+			throw e;
+		}
 		if (v.getBranch().getId() != bid) {
 			throw new BusinessException(ErrorCode.DEPOSIT_ACCESS_DENIED, "Xe không thuộc chi nhánh của bạn.");
 		}
@@ -548,6 +567,13 @@ public class DepositService {
 			st = "ConvertedToOrder";
 		}
 		String oid = d.getOrderId() == null ? null : String.valueOf(d.getOrderId());
+		String gwRef = d.getGatewayTxnRef();
+		if (gwRef != null) {
+			gwRef = gwRef.trim();
+			if (gwRef.isEmpty()) {
+				gwRef = null;
+			}
+		}
 		return DepositListItemDto.builder()
 				.id(String.valueOf(d.getId()))
 				.vehicleId(String.valueOf(d.getVehicleId()))
@@ -561,10 +587,47 @@ public class DepositService {
 				.createdAt(d.getCreatedAt() != null ? d.getCreatedAt().toString() : null)
 				.status(st)
 				.orderId(oid)
+				.gatewayTxnRef(gwRef)
 				.build();
 	}
 
 	private record VehicleDepositRowInfo(String title, String imageUrl) {
+	}
+
+	private String normalizeAndAssertDepositPayment(String jwtRole, String methodRaw) {
+		String raw = methodRaw == null ? "" : methodRaw.trim();
+		if (raw.isEmpty()) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Phương thức thanh toán là bắt buộc.");
+		}
+		String pm = raw.toLowerCase(Locale.ROOT);
+		if ("bank_transfer".equals(pm)) {
+			if (ROLE_CUSTOMER.equals(jwtRole)) {
+				throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+						"Đặt cọc trên website chỉ hỗ trợ VNPay hoặc ZaloPay.");
+			}
+			pm = "cash";
+		}
+		if (ROLE_CUSTOMER.equals(jwtRole)) {
+			if (!"vnpay".equals(pm) && !"zalopay".equals(pm)) {
+				throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+						"Đặt cọc trên website chỉ hỗ trợ VNPay hoặc ZaloPay.");
+			}
+			if ("vnpay".equals(pm)) {
+				paymentGatewayConfigService.assertVnpayEnabled();
+			}
+			if ("zalopay".equals(pm)) {
+				paymentGatewayConfigService.assertZaloPayEnabled();
+			}
+			return pm;
+		}
+		switch (pm) {
+			case "cash" -> paymentGatewayConfigService.assertCashPaymentAllowed();
+			case "vnpay" -> paymentGatewayConfigService.assertVnpayEnabled();
+			case "zalopay" -> paymentGatewayConfigService.assertZaloPayEnabled();
+			default -> throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+					"Phương thức không hợp lệ. Chọn: tiền mặt (cash), VNPay hoặc ZaloPay.");
+		}
+		return pm;
 	}
 
 	private static String blankToNull(String s) {

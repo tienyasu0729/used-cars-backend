@@ -22,13 +22,16 @@ import scu.dn.used_cars_backend.common.api.ApiResponse;
 import scu.dn.used_cars_backend.common.web.HttpServletClientIp;
 import scu.dn.used_cars_backend.dto.payment.OrderPaymentStaffRowDto;
 import scu.dn.used_cars_backend.dto.payment.PaymentCreateRequest;
+import scu.dn.used_cars_backend.dto.payment.PaymentDepositMethodsDto;
 import scu.dn.used_cars_backend.dto.payment.PaymentUrlResponse;
 import scu.dn.used_cars_backend.dto.payment.VnpayClientReturnPayload;
 import scu.dn.used_cars_backend.dto.payment.VnpayOrderPaymentActionRequest;
 import scu.dn.used_cars_backend.dto.payment.ZaloPayReturnPayload;
 import scu.dn.used_cars_backend.dto.payment.ZaloPayStatusResponse;
 import scu.dn.used_cars_backend.security.AuthenticationDetailsUtils;
+import scu.dn.used_cars_backend.security.JwtRoleNames;
 import scu.dn.used_cars_backend.service.payment.PaymentApplicationService;
+import scu.dn.used_cars_backend.service.payment.PaymentGatewayConfigService;
 
 import java.util.List;
 import java.util.Map;
@@ -39,6 +42,21 @@ import java.util.Map;
 public class PaymentController {
 
 	private final PaymentApplicationService paymentApplicationService;
+	private final PaymentGatewayConfigService paymentGatewayConfigService;
+
+	@GetMapping("/deposit-methods")
+	public ResponseEntity<ApiResponse<PaymentDepositMethodsDto>> depositMethods(Authentication authentication) {
+		String role = JwtRoleNames.primaryRole(authentication);
+		boolean staffSide = !"CUSTOMER".equalsIgnoreCase(role);
+		boolean cash = staffSide && paymentGatewayConfigService.isCashPaymentAllowed();
+		boolean vn = paymentGatewayConfigService.isTruthy(PaymentGatewayConfigService.KEY_VNPAY_ENABLED);
+		boolean zl = paymentGatewayConfigService.isTruthy(PaymentGatewayConfigService.KEY_ZALO_ENABLED);
+		return ResponseEntity.ok(ApiResponse.success(PaymentDepositMethodsDto.builder()
+				.cash(cash)
+				.vnpay(vn)
+				.zalopay(zl)
+				.build()));
+	}
 
 	@PostMapping("/vnpay/create")
 	public ResponseEntity<ApiResponse<PaymentUrlResponse>> createVnpay(@Valid @RequestBody PaymentCreateRequest body,

@@ -19,4 +19,6 @@ public class DepositListItemDto {
 	String createdAt;
 	String status;
 	String orderId;
+	/** Cột gateway_txn_ref (VNPay/ZaloPay/tiền mặt…); null nếu chưa có. */
+	String gatewayTxnRef;
 }

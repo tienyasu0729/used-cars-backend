@@ -52,6 +52,7 @@ public class SecurityConfig {
 				.sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				.exceptionHandling(e -> e.authenticationEntryPoint(restAuthenticationEntryPoint))
 				.authorizeHttpRequests(auth -> auth
+						.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/register").permitAll()
 						.requestMatchers(HttpMethod.GET, "/api/v1/catalog/**").permitAll()
 						.requestMatchers(HttpMethod.GET, "/api/v1/branches", "/api/v1/branches/*", "/api/v1/branches/*/team")
@@ -67,6 +68,7 @@ public class SecurityConfig {
 						.requestMatchers("/api/v1/webhook/**").permitAll()
 						.requestMatchers("/error").permitAll()
 						.requestMatchers("/ws/**").permitAll()
+						.requestMatchers("/api/v1/admin/transactions/**").hasAnyRole("ADMIN", "BRANCHMANAGER")
 						.requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
 						.requestMatchers("/api/v1/manager/staff/**").hasAnyRole("ADMIN", "BRANCHMANAGER")
 						.requestMatchers("/api/v1/manager/settings/**").hasAnyRole("ADMIN", "BRANCHMANAGER")

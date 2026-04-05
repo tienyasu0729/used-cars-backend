@@ -58,6 +58,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
 	@Override
 	protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
+		if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+			return true;
+		}
 		return PUBLIC_AUTH.matches(request) || PUBLIC_PAYMENT_GATEWAY.matches(request) || WS_HANDSHAKE.matches(request);
 	}
 

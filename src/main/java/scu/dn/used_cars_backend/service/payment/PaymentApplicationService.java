@@ -16,6 +16,7 @@ import scu.dn.used_cars_backend.dto.payment.OrderPaymentStaffRowDto;
 import scu.dn.used_cars_backend.dto.payment.PaymentCreateRequest;
 import scu.dn.used_cars_backend.dto.payment.PaymentUrlResponse;
 import scu.dn.used_cars_backend.dto.payment.VnpayClientReturnPayload;
+import scu.dn.used_cars_backend.dto.payment.ZaloPayReturnPayload;
 import scu.dn.used_cars_backend.dto.payment.ZaloPayStatusResponse;
 import scu.dn.used_cars_backend.entity.Deposit;
 import scu.dn.used_cars_backend.entity.FinancialTransaction;
@@ -30,6 +31,7 @@ import scu.dn.used_cars_backend.repository.SalesOrderRepository;
 import scu.dn.used_cars_backend.repository.VehicleRepository;
 import scu.dn.used_cars_backend.service.DepositService;
 import scu.dn.used_cars_backend.service.StaffService;
+import scu.dn.used_cars_backend.service.VehicleService;
 
 import java.math.BigDecimal;
 import java.net.URI;
@@ -65,6 +67,7 @@ public class PaymentApplicationService {
 	private final StaffService staffService;
 	private final DepositService depositService;
 	private final VehicleRepository vehicleRepository;
+	private final VehicleService vehicleService;
 
 	@Transactional
 	public PaymentUrlResponse createVnpay(long userId, PaymentCreateRequest req, String clientIp) {
@@ -106,8 +109,7 @@ public class PaymentApplicationService {
 		String embed;
 		try {
 			embed = objectMapper.writeValueAsString(Map.of("redirecturl", redirect));
-		}
-		catch (JsonProcessingException e) {
+		} catch (JsonProcessingException e) {
 			throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "Không tạo embed_data ZaloPay.");
 		}
 		String orderUrl = zaloPayService.createOrderAndGetPayUrl(cfg, transId, req.getAmount().longValueExact(),
@@ -116,6 +118,43 @@ public class PaymentApplicationService {
 			throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "ZaloPay thieu order_url.");
 		}
 		return new PaymentUrlResponse(orderUrl);
+	}
+
+	@Transactional
+	public void cancelPendingOrderPayment(long orderPaymentId) {
+		OrderPayment p = orderPaymentRepository.findById(orderPaymentId).orElse(null);
+		if (p == null || !"Pending".equals(p.getStatus())) {
+			return;
+		}
+		p.setStatus("Failed");
+		orderPaymentRepository.save(p);
+		orderPaymentRepository.flush();
+		log.info("OrderPayment {} marked Failed (pending online payment closed)", orderPaymentId);
+	}
+
+	@Transactional
+	public void cancelPendingOrderPaymentByTransactionRef(String transactionRef) {
+		if (transactionRef == null || transactionRef.isBlank()) {
+			return;
+		}
+		orderPaymentRepository.findByTransactionRef(transactionRef.trim())
+				.ifPresent(x -> cancelPendingOrderPayment(x.getId()));
+	}
+
+	@Transactional
+	public void customerCancelPendingOrderPayment(long userId, long orderPaymentId) {
+		OrderPayment p = orderPaymentRepository.findByIdWithOrderAndBranch(orderPaymentId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "Khong tim thay thanh toan."));
+		SalesOrder o = p.getOrder();
+		if (o.getCustomerId() == null || o.getCustomerId() != userId) {
+			throw new BusinessException(ErrorCode.PAYMENT_FORBIDDEN, "Khong co quyen huy giao dich nay.");
+		}
+		cancelPendingOrderPayment(orderPaymentId);
+	}
+
+	@Transactional(readOnly = true)
+	public List<Long> findPendingOnlineOrderPaymentIdsExpiredBefore(Instant cutoff) {
+		return orderPaymentRepository.findPendingOnlineOrderPaymentIdsCreatedBefore(cutoff);
 	}
 
 	public Optional<String> tryCompleteVnpay(Map<String, String> params) {
@@ -135,6 +174,9 @@ public class PaymentApplicationService {
 			if ("Completed".equals(p.getStatus())) {
 				return Optional.empty();
 			}
+			if (!"Pending".equals(p.getStatus())) {
+				return Optional.of("NOT_SUCCESS");
+			}
 			String amountStr = params.get("vnp_Amount");
 			if (amountStr == null) {
 				return Optional.of("MISSING_AMOUNT");
@@ -144,9 +186,11 @@ public class PaymentApplicationService {
 				return Optional.of("AMOUNT_MISMATCH");
 			}
 			if (!"00".equals(params.get("vnp_TransactionStatus"))) {
+				cancelPendingOrderPayment(p.getId());
 				return Optional.of("NOT_SUCCESS");
 			}
 			if (!"00".equals(params.get("vnp_ResponseCode"))) {
+				cancelPendingOrderPayment(p.getId());
 				return Optional.of("RESP_" + params.get("vnp_ResponseCode"));
 			}
 			completePaymentAndOrder(p, "vnpay", params.get("vnp_TransactionNo"));
@@ -234,12 +278,10 @@ public class PaymentApplicationService {
 			p.setStatus("Refunded");
 			p.setVnpLastRefundRequestId(reqId);
 			orderPaymentRepository.save(p);
-		}
-		else if ("94".equals(rc)) {
+		} else if ("94".equals(rc)) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
 					"VNPay: da gui yeu cau hoan tien truoc do (94).");
-		}
-		else {
+		} else {
 			String msg = resp.path("vnp_Message").asText(rc);
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "VNPay: " + msg);
 		}
@@ -329,7 +371,7 @@ public class PaymentApplicationService {
 			JsonNode gw = zaloPayService.queryOrderStatus(cfg, p.getTransactionRef());
 			boolean synced = maybeCompleteOrderPaymentFromZaloQuery(p, gw);
 			OrderPayment fresh = orderPaymentRepository.findById(p.getId()).orElse(p);
-			return new ZaloPayStatusResponse(gw, fresh.getStatus(), synced);
+			return new ZaloPayStatusResponse(gw, fresh.getStatus(), synced, fresh.getId(), null);
 		}
 		Deposit d = depositRepository.findById(depositId)
 				.orElseThrow(() -> new BusinessException(ErrorCode.DEPOSIT_NOT_FOUND, "Khong tim thay coc."));
@@ -345,7 +387,7 @@ public class PaymentApplicationService {
 		JsonNode gw = zaloPayService.queryOrderStatus(cfg, d.getGatewayTxnRef());
 		boolean synced = maybeCompleteDepositFromZaloQuery(d, gw);
 		Deposit fresh = depositRepository.findById(d.getId()).orElse(d);
-		return new ZaloPayStatusResponse(gw, fresh.getStatus(), synced);
+		return new ZaloPayStatusResponse(gw, fresh.getStatus(), synced, null, fresh.getId());
 	}
 
 	@Transactional
@@ -395,14 +437,14 @@ public class PaymentApplicationService {
 				if (amount < 0 || BigDecimal.valueOf(amount).compareTo(p.getAmount()) != 0) {
 					return Map.of("return_code", -4, "return_message", "amount mismatch");
 				}
-			boolean paidOrder = payload.hasNonNull("zp_trans_id") || payload.path("result").asInt(0) == 1;
-			if (!paidOrder) {
-				if ("Pending".equals(p.getStatus())) {
-					p.setStatus("Failed");
-					orderPaymentRepository.save(p);
+				boolean paidOrder = payload.hasNonNull("zp_trans_id") || payload.path("result").asInt(0) == 1;
+				if (!paidOrder) {
+					if ("Pending".equals(p.getStatus())) {
+						p.setStatus("Failed");
+						orderPaymentRepository.save(p);
+					}
+					return Map.of("return_code", 1, "return_message", "success");
 				}
-				return Map.of("return_code", 1, "return_message", "success");
-			}
 				completePaymentAndOrder(p, "zalopay", null);
 				return Map.of("return_code", 1, "return_message", "success");
 			}
@@ -446,6 +488,10 @@ public class PaymentApplicationService {
 					return Map.of("return_code", 1, "return_message", "success");
 				}
 				log.warn("ZaloPay callback return_code={} app_trans_id={} depositId={}", rc, appTransId, d.getId());
+				boolean paidUnknownRc = payload.hasNonNull("zp_trans_id") || payload.path("result").asInt(0) == 1;
+				if (!paidUnknownRc) {
+					depositService.cancelPendingDepositAfterOnlinePaymentDeclined(d.getId());
+				}
 				return Map.of("return_code", 1, "return_message", "success");
 			}
 			boolean paidDepLegacy = payload.hasNonNull("zp_trans_id") || payload.path("result").asInt(0) == 1;
@@ -459,8 +505,7 @@ public class PaymentApplicationService {
 			}
 			completeDepositAfterOnlinePayment(d, null);
 			return Map.of("return_code", 1, "return_message", "success");
-		}
-		catch (Exception e) {
+		} catch (Exception e) {
 			return Map.of("return_code", -9, "return_message", "parse error");
 		}
 	}
@@ -473,8 +518,84 @@ public class PaymentApplicationService {
 		return "zalopay".equalsIgnoreCase(d.getPaymentMethod());
 	}
 
+	@Transactional
+	public ZaloPayReturnPayload processZaloPayReturn(Long userId, Long depositId, Long orderId) {
+		log.info("[ZaloPayReturn] START processZaloPayReturn with userId={}, depositId={}, orderId={}", userId, depositId, orderId);
+		var cfg = paymentGatewayConfigService.loadZaloPayForCreate();
+
+		if (depositId != null) {
+			Deposit d = depositRepository.findById(depositId).orElse(null);
+			if (d != null) {
+				System.out.println("DEBUG processZaloPayReturn depositId=" + depositId 
+						+ " status=" + d.getStatus() 
+						+ " gatewayTxnRef=" + d.getGatewayTxnRef());
+			}
+			if (d == null) {
+				log.info("[ZaloPayReturn] Deposit {} not found", depositId);
+				return new ZaloPayReturnPayload(false, "NOT_FOUND", null, depositId);
+			}
+			log.info("[ZaloPayReturn] Deposit {} found. Current status: {}, gatewayTxnRef: {}", depositId, d.getStatus(), d.getGatewayTxnRef());
+			if (userId != null && d.getCustomerId() != userId) {
+				log.warn("[ZaloPayReturn] Deposit {} belongs to user {} but request is from user {}", depositId, d.getCustomerId(), userId);
+				return new ZaloPayReturnPayload(false, "FORBIDDEN", null, depositId);
+			}
+			if ("Confirmed".equals(d.getStatus()) || "Pending".equals(d.getStatus())) {
+				log.info("[ZaloPayReturn] Deposit {} is already completed (status={})", depositId, d.getStatus());
+				return new ZaloPayReturnPayload(true, "ALREADY_COMPLETED", null, depositId);
+			}
+			if ("Cancelled".equals(d.getStatus())) {
+				log.info("[ZaloPayReturn] Deposit {} is already cancelled", depositId);
+				return new ZaloPayReturnPayload(false, "ALREADY_CANCELLED", null, depositId);
+			}
+			if (d.getGatewayTxnRef() == null || d.getGatewayTxnRef().isBlank()) {
+				log.warn("[ZaloPayReturn] Deposit {} has no gatewayTxnRef", depositId);
+				return new ZaloPayReturnPayload(false, "NO_TXN_REF", null, depositId);
+			}
+
+			log.info("[ZaloPayReturn] Querying ZaloPay order status for txnRef={}", d.getGatewayTxnRef());
+			JsonNode gw = zaloPayService.queryOrderStatus(cfg, d.getGatewayTxnRef());
+			log.info("[ZaloPayReturn] ZaloPay query result: {}", gw);
+			
+			maybeCompleteDepositFromZaloQuery(d, gw);
+
+			Deposit fresh = depositRepository.findById(depositId).orElse(d);
+			boolean success = "Confirmed".equals(fresh.getStatus())
+					|| "Pending".equals(fresh.getStatus());
+			log.info("[ZaloPayReturn] Finished syncing deposit {}. Final status: {}, success: {}", depositId, fresh.getStatus(), success);
+			return new ZaloPayReturnPayload(success, success ? "OK" : "CANCELLED", gw, depositId);
+		}
+
+		if (orderId != null) {
+			log.info("[ZaloPayReturn] Order {} not supported yet", orderId);
+			return new ZaloPayReturnPayload(false, "ORDER_NOT_SUPPORTED", null, null);
+		}
+
+		log.warn("[ZaloPayReturn] Missing depositId or orderId");
+		return new ZaloPayReturnPayload(false, "MISSING_PARAM", null, null);
+	}
+
+	@Transactional
+	public boolean maybeSyncDepositFromZaloQuery(long depositId, JsonNode gw) {
+		Deposit d = depositRepository.findById(depositId).orElse(null);
+		if (d == null) {
+			return false;
+		}
+		return maybeCompleteDepositFromZaloQuery(d, gw);
+	}
+
 	private boolean maybeCompleteOrderPaymentFromZaloQuery(OrderPayment p, JsonNode gw) {
 		if (!"Pending".equals(p.getStatus())) {
+			return false;
+		}
+		int qrc = zaloReturnCodeFromNode(gw.get("return_code"));
+		if (qrc == Integer.MIN_VALUE) {
+			qrc = zaloReturnCodeFromNode(gw.get("returncode"));
+		}
+		if (qrc == 2) {
+			cancelPendingOrderPayment(p.getId());
+			return true;
+		}
+		if (qrc != Integer.MIN_VALUE && qrc != 1) {
 			return false;
 		}
 		if (gw.path("return_code").asInt() != 1) {
@@ -492,18 +613,38 @@ public class PaymentApplicationService {
 	}
 
 	private boolean maybeCompleteDepositFromZaloQuery(Deposit d, JsonNode gw) {
+		log.info("[ZaloPaySync] Checking deposit {} (status: {})", d.getId(), d.getStatus());
 		// Xu ly ca Pending va AwaitingPayment
 		if (!"Pending".equals(d.getStatus()) && !"AwaitingPayment".equals(d.getStatus())) {
+			log.info("[ZaloPaySync] Deposit {} has incompatible status: {}, skipping", d.getId(), d.getStatus());
 			return false;
 		}
-		if (gw.path("return_code").asInt() != 1) {
+		int qrc = zaloReturnCodeFromNode(gw.get("return_code"));
+		if (qrc == Integer.MIN_VALUE) {
+			qrc = zaloReturnCodeFromNode(gw.get("returncode"));
+		}
+		log.info("[ZaloPaySync] Parsed ZaloPay return code: {}", qrc);
+		// return_code=2: ZaloPay xac nhan that bai/huy
+		// return_code=3: Chua thuc hien (thoat truoc QR)
+		// return_code am (vd: -6012): dang doi soat / giao dich loi
+		// Ca hai deu cancel vi deposit khong the tiep tuc
+		if (qrc == 2 || qrc == 3 || (qrc < 0 && qrc != Integer.MIN_VALUE)) {
+			log.info("[ZaloPaySync] ZaloPay declined/cancelled (qrc={}). Cancelling deposit {}", qrc, d.getId());
+			System.out.println("Cancel pending deposit after online payment declined: " + qrc);
+			depositService.cancelPendingDepositAfterOnlinePaymentDeclined(d.getId());
+			return true;
+		}
+		if (qrc != 1) {
+			log.info("[ZaloPaySync] return code {} is not 1 (success) nor 2/negative (fail). Skipping.", qrc);
 			return false;
 		}
 		if (gw.path("zp_trans_id").asLong(0) <= 0) {
+			log.warn("[ZaloPaySync] Missing or invalid zp_trans_id for success transaction");
 			return false;
 		}
 		long amt = gw.path("amount").asLong(-1);
 		if (amt < 0 || BigDecimal.valueOf(amt).compareTo(d.getAmount()) != 0) {
+			log.warn("[ZaloPaySync] Amount mismatch: ZP returned {}, required {}", amt, d.getAmount());
 			return false;
 		}
 		JsonNode zpNode = gw.get("zp_trans_id");
@@ -512,6 +653,7 @@ public class PaymentApplicationService {
 		if (!zps.isBlank()) {
 			d.setGatewayOrderUrl(zps);
 		}
+		log.info("[ZaloPaySync] Payment successful, completing deposit {}", d.getId());
 		completeDepositAfterOnlinePayment(d, null);
 		return true;
 	}
@@ -537,7 +679,7 @@ public class PaymentApplicationService {
 	private void completeDepositAfterOnlinePayment(Deposit d, String vnpGatewayTransactionNo) {
 		// B1: Kiem tra xe van con Available
 		Vehicle v = vehicleRepository.findById(d.getVehicleId())
-			.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Xe không tìm thấy."));
+				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Xe không tìm thấy."));
 
 		// Neu xe da bi RESERVED/SOLD boi nguoi khac trong luc user dang thanh toan
 		if (!VehicleStatus.AVAILABLE.getDbValue().equals(v.getStatus())
@@ -562,7 +704,7 @@ public class PaymentApplicationService {
 
 		// B3: Tao FinancialTransaction (luc nay moi tao vi payment confirmed)
 		boolean txExists = financialTransactionRepository
-			.findByReferenceTypeAndReferenceId("Deposit", d.getId()).isPresent();
+				.findByReferenceTypeAndReferenceId("Deposit", d.getId()).isPresent();
 		if (!txExists) {
 			FinancialTransaction tx = new FinancialTransaction();
 			tx.setUserId(d.getCustomerId());
@@ -575,15 +717,16 @@ public class PaymentApplicationService {
 			financialTransactionRepository.save(tx);
 		} else {
 			financialTransactionRepository.findByReferenceTypeAndReferenceId("Deposit", d.getId())
-				.ifPresent(tx -> {
-					tx.setStatus("Completed");
-					financialTransactionRepository.save(tx);
-				});
+					.ifPresent(tx -> {
+						tx.setStatus("Completed");
+						financialTransactionRepository.save(tx);
+					});
 		}
 
 		// B4: Set xe RESERVED (chi xay ra khi payment thanh cong)
 		v.setStatus(VehicleStatus.RESERVED.getDbValue());
 		vehicleRepository.save(v);
+		vehicleService.evictPublicVehicleCaches(v.getId());
 	}
 
 	private SalesOrder loadOrderAndAssertOwner(long orderId, long userId) {
@@ -625,11 +768,15 @@ public class PaymentApplicationService {
 		if (n.isTextual()) {
 			try {
 				return Integer.parseInt(n.asText().trim());
-			}
-			catch (NumberFormatException e) {
+			} catch (NumberFormatException e) {
 				return null;
 			}
 		}
 		return null;
+	}
+
+	private static int zaloReturnCodeFromNode(JsonNode n) {
+		Integer p = parseZaloReturnCode(n);
+		return p != null ? p : Integer.MIN_VALUE;
 	}
 }

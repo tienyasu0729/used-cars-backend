@@ -26,6 +26,7 @@ import scu.dn.used_cars_backend.entity.Branch;
 import scu.dn.used_cars_backend.entity.Vehicle;
 import scu.dn.used_cars_backend.entity.VehicleStatus;
 import scu.dn.used_cars_backend.repository.BranchRepository;
+import scu.dn.used_cars_backend.repository.DepositRepository;
 import scu.dn.used_cars_backend.repository.VehicleRepository;
 
 import java.time.LocalDate;
@@ -47,6 +48,7 @@ public class BookingService {
 	private final BookingStatusHistoryRepository bookingStatusHistoryRepository;
 	private final VehicleRepository vehicleRepository;
 	private final BranchRepository branchRepository;
+	private final DepositRepository depositRepository;
 	private final BranchOpeningHoursProvider openingHoursProvider;
 
 	@Transactional(rollbackFor = Exception.class)
@@ -61,6 +63,11 @@ public class BookingService {
 		Vehicle vehicle = vehicleRepository.findAvailableForBooking(request.getVehicleId(),
 						VehicleStatus.AVAILABLE.getDbValue())
 				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_AVAILABLE, "Xe này hiện không thể đặt lịch."));
+		if (depositRepository.countByVehicleIdAndStatusIn(vehicle.getId(),
+				List.of("Pending", "Confirmed", "AwaitingPayment")) > 0) {
+			throw new BusinessException(ErrorCode.VEHICLE_NOT_AVAILABLE,
+					"Xe đang có cọc hoặc thanh toán đang xử lý — không đặt lịch lái thử.");
+		}
 		if (vehicle.getBranch() == null || vehicle.getBranch().getId() == null
 				|| vehicle.getBranch().getId() != branchId) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Xe không thuộc chi nhánh đã chọn.");

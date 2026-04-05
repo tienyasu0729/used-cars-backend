@@ -9,6 +9,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.domain.Sort.Order;
+import org.springframework.beans.BeanUtils;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,6 +35,7 @@ import scu.dn.used_cars_backend.repository.BranchRepository;
 import scu.dn.used_cars_backend.repository.CategoryRepository;
 import scu.dn.used_cars_backend.repository.StaffAssignmentRepository;
 import scu.dn.used_cars_backend.repository.SubcategoryRepository;
+import scu.dn.used_cars_backend.repository.DepositRepository;
 import scu.dn.used_cars_backend.repository.VehicleImageRepository;
 import scu.dn.used_cars_backend.repository.VehicleRepository;
 
@@ -40,8 +43,10 @@ import java.math.BigDecimal;
 import java.security.SecureRandom;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -51,8 +56,8 @@ public class VehicleService {
 	private static final Set<String> VEHICLE_STATUSES = Set.of("Available", "Reserved", "Sold", "Hidden", "InTransfer");
 	private static final ZoneId VN = ZoneId.of("Asia/Ho_Chi_Minh");
 	/** Tiền tố khóa cache — đổi khi DTO list/detail thay đổi để tránh trả bản cũ thiếu field. */
-	private static final String VEHICLE_LIST_CACHE_PREFIX = "v3:";
-	private static final String VEHICLE_DETAIL_CACHE_PREFIX = "v3:";
+	private static final String VEHICLE_LIST_CACHE_PREFIX = "v4:";
+	private static final String VEHICLE_DETAIL_CACHE_PREFIX = "v4:";
 	/** Mã tin (listing_id): chuỗi số ngẫu nhiên, không phải khóa chính; cột DB unique, độ dài tối đa 20. */
 	private static final int LISTING_ID_DIGITS = 12;
 	private static final int LISTING_ID_MAX_ATTEMPTS = 20;
@@ -64,12 +69,14 @@ public class VehicleService {
 	private final BranchRepository branchRepository;
 	private final StaffAssignmentRepository staffAssignmentRepository;
 	private final CacheManager cacheManager;
+	private final DepositService depositService;
+	private final DepositRepository depositRepository;
 	private final SecureRandom listingIdRandom = new SecureRandom();
 
 	public VehicleService(VehicleRepository vehicleRepository, VehicleImageRepository vehicleImageRepository,
 			CategoryRepository categoryRepository, SubcategoryRepository subcategoryRepository,
 			BranchRepository branchRepository, StaffAssignmentRepository staffAssignmentRepository,
-			CacheManager cacheManager) {
+			CacheManager cacheManager, @Lazy DepositService depositService, DepositRepository depositRepository) {
 		this.vehicleRepository = vehicleRepository;
 		this.vehicleImageRepository = vehicleImageRepository;
 		this.categoryRepository = categoryRepository;
@@ -77,6 +84,8 @@ public class VehicleService {
 		this.branchRepository = branchRepository;
 		this.staffAssignmentRepository = staffAssignmentRepository;
 		this.cacheManager = cacheManager;
+		this.depositService = depositService;
+		this.depositRepository = depositRepository;
 	}
 
 	@Transactional(readOnly = true)
@@ -133,7 +142,7 @@ public class VehicleService {
 			if (v == null) {
 				throw new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe.");
 			}
-			out.add(toDetailDto(v));
+			out.add(toPublicDetailDto(v));
 		}
 		return out;
 	}
@@ -150,9 +159,30 @@ public class VehicleService {
 			}
 		}
 		// B2: DB; không tìm thấy thì không put cache (giống unless = #result == null)
-		VehicleDetailDto dto = vehicleRepository.findPublicDetailById(id).map(VehicleService::toDetailDto).orElse(null);
+		VehicleDetailDto dto = vehicleRepository.findPublicDetailById(id).map(this::toPublicDetailDto).orElse(null);
 		if (dto != null && cache != null) {
 			cache.put(key, dto);
+		}
+		return dto;
+	}
+
+	/**
+	 * Chi tiết xe công khai + thêm myPendingDepositId cho user đã login.
+	 * Reuse DTO từ cache, chỉ enrich thêm field user-specific.
+	 */
+	@Transactional(readOnly = true)
+	public VehicleDetailDto getPublicDetailForUser(long vehicleId, Long userId) {
+		VehicleDetailDto cached = getPublicDetail(vehicleId);
+		if (cached == null) {
+			return null;
+		}
+		VehicleDetailDto dto = new VehicleDetailDto();
+		BeanUtils.copyProperties(cached, dto);
+		dto.setMyPendingDepositId(null);
+		if (userId != null) {
+			depositRepository.findByVehicleIdAndStatusIn(vehicleId, List.of("AwaitingPayment")).stream()
+					.filter(d -> d.getCustomerId() == userId).findFirst()
+					.ifPresent(d -> dto.setMyPendingDepositId(d.getId()));
 		}
 		return dto;
 	}
@@ -183,7 +213,7 @@ public class VehicleService {
 			PageRequest pr = PageRequest.of(pg, netSz, sortObj);
 			Page<Vehicle> p = vehicleRepository.findPublicPage(null, categoryId, subcategoryId, minPrice, maxPrice,
 					yearMin, yearMax, tx, branchId, pr);
-			return buildVehicleListResponse(p);
+			return buildManagerListResponse(p);
 		}
 
 		int sz = Math.min(500, Math.max(1, size));
@@ -204,7 +234,7 @@ public class VehicleService {
 
 		Page<Vehicle> p = vehicleRepository.findManagedPage(branchIds, categoryId, subcategoryId, minPrice, maxPrice,
 				yearMin, yearMax, tx, branchId, vs, pr);
-		return buildVehicleListResponse(p);
+		return buildManagerListResponse(p);
 	}
 
 	/** Chi tiết xe cho màn sửa manager — 403 nếu xe không thuộc chi nhánh được quản lý. */
@@ -213,7 +243,7 @@ public class VehicleService {
 		Vehicle v = vehicleRepository.findManagedDetailById(id)
 				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
 		assertCanManageBranch(actorUserId, isAdmin, v.getBranch());
-		return toDetailDto(v);
+		return toManagedDetailDto(v);
 	}
 
 	@Transactional
@@ -235,7 +265,7 @@ public class VehicleService {
 
 		Vehicle saved = vehicleRepository.save(v);
 		evictVehicleCaches(saved.getId());
-		return toDetailDto(saved);
+		return toManagedDetailDto(saved);
 	}
 
 	@Transactional
@@ -264,9 +294,13 @@ public class VehicleService {
 		v.getImages().clear();
 		applyImagesFromRequest(v, req.getImages());
 
+		if ("Available".equals(req.getStatus())) {
+			depositService.syncOpenDepositsWhenVehicleSetAvailable(id);
+		}
+
 		Vehicle saved = vehicleRepository.save(v);
 		evictVehicleCaches(saved.getId());
-		return toDetailDto(saved);
+		return toManagedDetailDto(saved);
 	}
 
 	/** Tier 3.3 — Admin duyệt điều chuyển: đánh dấu xe InTransfer tại chi nhánh nguồn (entrypoint Dev 2). */
@@ -305,6 +339,7 @@ public class VehicleService {
 		Branch to = branchRepository.findByIdAndDeletedFalse(toBranchId)
 				.orElseThrow(() -> new BusinessException(ErrorCode.BRANCH_NOT_FOUND, "Không tìm thấy chi nhánh đích."));
 		v.setBranch(to);
+		depositService.syncOpenDepositsWhenVehicleSetAvailable(vehicleId);
 		v.setStatus("Available");
 		vehicleRepository.save(v);
 		evictVehicleCaches(vehicleId);
@@ -330,12 +365,12 @@ public class VehicleService {
 				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
 		assertCanManageBranch(actorUserId, isAdmin, v.getBranch());
 		if (!v.isDeleted()) {
-			return toDetailDto(v);
+			return toManagedDetailDto(v);
 		}
 		v.setDeleted(false);
 		vehicleRepository.save(v);
 		evictVehicleCaches(id);
-		return toDetailDto(v);
+		return toManagedDetailDto(v);
 	}
 
 	// ===================== SPRINT 4 — STATUS + BULK + IMAGE =====================
@@ -353,11 +388,13 @@ public class VehicleService {
 		Vehicle v = vehicleRepository.findManagedDetailById(vehicleId)
 				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
 		assertCanManageBranch(actorUserId, isAdmin, v.getBranch());
-		// B3: cập nhật trạng thái
+		if ("Available".equals(newStatus)) {
+			depositService.syncOpenDepositsWhenVehicleSetAvailable(vehicleId);
+		}
 		v.setStatus(newStatus);
 		vehicleRepository.save(v);
 		evictVehicleCaches(vehicleId);
-		return toDetailDto(v);
+		return toManagedDetailDto(v);
 	}
 
 	/** Đổi trạng thái xe hàng loạt — Fail-Fast: nếu bất kỳ xe nào ngoài chi nhánh → 403. */
@@ -378,6 +415,9 @@ public class VehicleService {
 					.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND,
 							"Không tìm thấy xe ID=" + id + "."));
 			assertCanManageBranch(actorUserId, isAdmin, v.getBranch());
+			if ("Available".equals(newStatus)) {
+				depositService.syncOpenDepositsWhenVehicleSetAvailable(id);
+			}
 			v.setStatus(newStatus);
 			vehicleRepository.save(v);
 			evictVehicleCaches(id);
@@ -442,7 +482,10 @@ public class VehicleService {
 		evictVehicleCaches(vehicleId);
 	}
 
-	/** Giống @CacheEvict: xóa toàn bộ list + 1 key detail. */
+	public void evictPublicVehicleCaches(long vehicleId) {
+		evictVehicleCaches(vehicleId);
+	}
+
 	private void evictVehicleCaches(Long vehicleId) {
 		Cache list = cacheManager.getCache("vehicleList");
 		if (list != null) {
@@ -538,11 +581,12 @@ public class VehicleService {
 		return res;
 	}
 
-	private static VehicleListResponse buildVehicleListResponse(Page<Vehicle> p) {
+	private VehicleListResponse buildManagerListResponse(Page<Vehicle> p) {
 		List<VehicleSummaryDto> items = new ArrayList<>();
 		for (Vehicle v : p.getContent()) {
 			items.add(toSummaryDto(v));
 		}
+		enrichSummariesListingHold(items, p.getContent());
 		PageMetaDto meta = new PageMetaDto();
 		meta.setPage(p.getNumber());
 		meta.setSize(p.getSize());
@@ -565,6 +609,7 @@ public class VehicleService {
 		for (Vehicle v : p.getContent()) {
 			items.add(toSummaryDto(v));
 		}
+		enrichSummariesListingHold(items, p.getContent());
 		PageMetaDto meta = new PageMetaDto();
 		meta.setPage(p.getNumber());
 		meta.setSize(p.getSize());
@@ -574,6 +619,47 @@ public class VehicleService {
 		res.setItems(items);
 		res.setMeta(meta);
 		return res;
+	}
+
+	private VehicleDetailDto toPublicDetailDto(Vehicle v) {
+		VehicleDetailDto dto = toDetailDto(v);
+		dto.setListingHoldActive(computeListingHoldActive(v.getId()));
+		return dto;
+	}
+
+	private VehicleDetailDto toManagedDetailDto(Vehicle v) {
+		VehicleDetailDto dto = toDetailDto(v);
+		dto.setListingHoldActive(computeListingHoldActive(v.getId()));
+		return dto;
+	}
+
+	private boolean computeListingHoldActive(long vehicleId) {
+		return depositRepository.countByVehicleIdAndStatusIn(vehicleId,
+				List.of("Pending", "Confirmed", "AwaitingPayment")) > 0;
+	}
+
+	private void enrichSummariesListingHold(List<VehicleSummaryDto> items, List<Vehicle> vehicles) {
+		if (items.isEmpty() || vehicles.isEmpty() || items.size() != vehicles.size()) {
+			return;
+		}
+		List<Long> ids = vehicles.stream().map(Vehicle::getId).toList();
+		Map<Long, Long> counts = loadActiveSalesHoldCounts(ids);
+		for (int i = 0; i < items.size(); i++) {
+			long vid = vehicles.get(i).getId();
+			items.get(i).setListingHoldActive(counts.getOrDefault(vid, 0L) > 0);
+		}
+	}
+
+	private Map<Long, Long> loadActiveSalesHoldCounts(List<Long> vehicleIds) {
+		if (vehicleIds.isEmpty()) {
+			return Map.of();
+		}
+		List<Object[]> rows = depositRepository.countActiveSalesHoldsGrouped(vehicleIds);
+		Map<Long, Long> out = new HashMap<>();
+		for (Object[] row : rows) {
+			out.put((Long) row[0], (Long) row[1]);
+		}
+		return out;
 	}
 
 	private Subcategory loadSubcategoryForCategory(int subcategoryId, int categoryId) {

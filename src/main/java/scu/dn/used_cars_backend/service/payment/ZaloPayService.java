@@ -44,7 +44,7 @@ public class ZaloPayService {
 		body.put("embed_data", embedData);
 		body.put("item", item);
 		body.put("description", description != null ? description : "Thanh toan don hang");
-		body.put("bank_code", "");
+		body.put("bank_code", "zalopayapp");
 		body.put("callback_url", cfg.callbackUrl());
 		body.put("mac", mac);
 		String json;

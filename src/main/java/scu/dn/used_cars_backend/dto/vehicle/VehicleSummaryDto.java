@@ -29,6 +29,8 @@ public class VehicleSummaryDto {
 	/** Tên chi nhánh — tiện cho bảng quản lý xe */
 	private String branchName;
 	private String status;
+	/** Có cọc đang giữ slot mua — đồng bộ với kiểm tra đặt cọc */
+	private boolean listingHoldActive;
 	/** true = đã ẩn khỏi trang công khai (is_deleted), vẫn hiện trong quản lý chi nhánh */
 	private boolean deleted;
 	private String primaryImageUrl;

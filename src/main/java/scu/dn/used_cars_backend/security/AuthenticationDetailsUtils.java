@@ -17,4 +17,16 @@ public final class AuthenticationDetailsUtils {
 		}
 		return (Long) authentication.getDetails();
 	}
+
+	/** Lấy userId nếu đã login, null nếu chưa — dùng cho API công khai muốn enrich response cho user. */
+	public static Long optionalUserId(Authentication authentication) {
+		if (authentication == null || authentication.getDetails() == null) {
+			return null;
+		}
+		try {
+			return (Long) authentication.getDetails();
+		} catch (ClassCastException e) {
+			return null;
+		}
+	}
 }

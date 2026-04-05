@@ -12,9 +12,11 @@ public class DepositListItemDto {
 	String customerId;
 	String customerName;
 	String vehicleTitle;
+	String vehicleImageUrl;
 	long amount;
 	String depositDate;
 	String expiryDate;
+	String createdAt;
 	String status;
 	String orderId;
 }

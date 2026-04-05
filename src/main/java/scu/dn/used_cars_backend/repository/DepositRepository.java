@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import scu.dn.used_cars_backend.entity.Deposit;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -21,6 +22,16 @@ public interface DepositRepository extends JpaRepository<Deposit, Long> {
 	List<Deposit> findByCustomerIdOrderByCreatedAtDesc(Long customerId);
 
 	long countByVehicleIdAndStatusIn(long vehicleId, List<String> statuses);
+
+	@Query("""
+			select d.vehicleId, count(d) from Deposit d
+			where d.vehicleId in :ids
+			and d.status in ('Pending', 'Confirmed', 'AwaitingPayment')
+			group by d.vehicleId
+			""")
+	List<Object[]> countActiveSalesHoldsGrouped(@Param("ids") List<Long> ids);
+
+	List<Deposit> findByVehicleIdAndStatusIn(long vehicleId, Collection<String> statuses);
 
 	@Query("""
 			select d from Deposit d
@@ -56,15 +67,11 @@ public interface DepositRepository extends JpaRepository<Deposit, Long> {
 	Page<Deposit> pageForCustomerClean(@Param("customerId") long customerId, @Param("status") String status,
 			Pageable pageable);
 
-	// Dùng cho ROLE_CUSTOMER: ẩn AwaitingPayment và Cancelled online
 	@Query("""
 			select d from Deposit d
 			where d.customerId = :customerId
 			and (:status is null or d.status = :status)
 			and d.status not in ('AwaitingPayment')
-			and not (d.status = 'Cancelled'
-			         and d.paymentGateway is not null
-			         and lower(d.paymentGateway) in ('vnpay', 'zalopay'))
 			order by d.createdAt desc
 			""")
 	Page<Deposit> pageForCustomerVisible(@Param("customerId") long customerId, @Param("status") String status,

@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 import scu.dn.used_cars_backend.entity.OrderPayment;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -22,4 +23,12 @@ public interface OrderPaymentRepository extends JpaRepository<OrderPayment, Long
 
 	@Query("select coalesce(sum(p.amount), 0) from OrderPayment p where p.order.id = :orderId and p.status = 'Completed'")
 	BigDecimal sumCompletedAmountByOrderId(@Param("orderId") long orderId);
+
+	@Query("""
+			select p.id from OrderPayment p
+			where p.status = 'Pending'
+			and lower(trim(p.paymentMethod)) in ('vnpay', 'zalopay')
+			and p.createdAt < :cutoff
+			""")
+	List<Long> findPendingOnlineOrderPaymentIdsCreatedBefore(@Param("cutoff") Instant cutoff);
 }

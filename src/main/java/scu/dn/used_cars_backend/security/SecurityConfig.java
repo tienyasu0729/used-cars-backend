@@ -60,6 +60,7 @@ public class SecurityConfig {
 						.requestMatchers(HttpMethod.POST, "/api/v1/vehicles/*/view").permitAll()
 						.requestMatchers(HttpMethod.GET, "/api/v1/bookings/available-slots").permitAll()
 						.requestMatchers(HttpMethod.GET, "/api/v1/payment/vnpay/return").permitAll()
+						.requestMatchers(HttpMethod.GET, "/api/v1/payment/zalopay/return").permitAll()
 						.requestMatchers(HttpMethod.GET, "/api/v1/payment/vnpay/ipn").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/v1/payment/vnpay/ipn").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/v1/payment/zalopay/callback").permitAll()

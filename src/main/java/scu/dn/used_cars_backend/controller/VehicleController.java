@@ -4,6 +4,7 @@ package scu.dn.used_cars_backend.controller;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -15,6 +16,7 @@ import scu.dn.used_cars_backend.common.exception.BusinessException;
 import scu.dn.used_cars_backend.common.exception.ErrorCode;
 import scu.dn.used_cars_backend.dto.vehicle.VehicleDetailDto;
 import scu.dn.used_cars_backend.dto.vehicle.VehicleListResponse;
+import scu.dn.used_cars_backend.security.AuthenticationDetailsUtils;
 import scu.dn.used_cars_backend.service.VehicleService;
 
 import java.math.BigDecimal;
@@ -81,8 +83,10 @@ public class VehicleController {
 
 	/** Chỉ khớp id số — tránh ăn path như {@code /vehicles/recently-viewed} (API Tier 3.1). */
 	@GetMapping("/{id:\\d+}")
-	public ResponseEntity<ApiResponse<VehicleDetailDto>> detail(@PathVariable long id) {
-		VehicleDetailDto dto = vehicleService.getPublicDetail(id);
+	public ResponseEntity<ApiResponse<VehicleDetailDto>> detail(@PathVariable long id,
+			Authentication authentication) {
+		Long userId = AuthenticationDetailsUtils.optionalUserId(authentication);
+		VehicleDetailDto dto = vehicleService.getPublicDetailForUser(id, userId);
 		if (dto == null) {
 			throw new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe.");
 		}
@@ -90,3 +94,4 @@ public class VehicleController {
 	}
 
 }
+

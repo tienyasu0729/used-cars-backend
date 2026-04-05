@@ -20,6 +20,7 @@ import scu.dn.used_cars_backend.entity.Deposit;
 import scu.dn.used_cars_backend.entity.FinancialTransaction;
 import scu.dn.used_cars_backend.entity.User;
 import scu.dn.used_cars_backend.entity.Vehicle;
+import scu.dn.used_cars_backend.entity.VehicleImage;
 import scu.dn.used_cars_backend.entity.VehicleStatus;
 import scu.dn.used_cars_backend.repository.DepositRepository;
 import scu.dn.used_cars_backend.repository.FinancialTransactionRepository;
@@ -37,9 +38,13 @@ import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -48,6 +53,9 @@ public class DepositService {
 	private static final Logger log = LoggerFactory.getLogger(DepositService.class);
 	private static final String ROLE_CUSTOMER = "CUSTOMER";
 	private static final String ROLE_ADMIN = "ADMIN";
+	private static final String NOTE_SYNC_AVAILABLE =
+			"Huy: Dong bo khi showroom dat xe ve Dang ban (Pending/AwaitingPayment)";
+	private static final String NOTE_ORDER_CANCEL = "Huy: Dong bo khi huy don hang #";
 	private static final ZoneId VN = ZoneId.of("Asia/Ho_Chi_Minh");
 	private static final DateTimeFormatter ZP_TRANS_DAY = DateTimeFormatter.ofPattern("yyMMdd");
 	private final DepositRepository depositRepository;
@@ -59,6 +67,7 @@ public class DepositService {
 	private final VnpayService vnpayService;
 	private final ZaloPayService zaloPayService;
 	private final ObjectMapper objectMapper;
+	private final VehicleService vehicleService;
 
 	@Transactional(rollbackFor = Exception.class)
 	public CreateDepositResponse create(long actorUserId, String jwtRole, CreateDepositRequest req, String clientIp) {
@@ -77,9 +86,7 @@ public class DepositService {
 			throw new BusinessException(ErrorCode.VEHICLE_NOT_AVAILABLE, "Xe không khả dụng để đặt cọc.");
 		}
 
-		// B4: Kiem tra khong co deposit Pending/Confirmed nao khac
-		// (Cho phep nhieu AwaitingPayment cung luc — ai thanh toan xong truoc se lay duoc xe)
-		if (depositRepository.countByVehicleIdAndStatusIn(v.getId(), List.of("Pending", "Confirmed")) > 0) {
+		if (depositRepository.countByVehicleIdAndStatusIn(v.getId(), List.of("Pending", "Confirmed", "AwaitingPayment")) > 0) {
 			throw new BusinessException(ErrorCode.VEHICLE_ALREADY_DEPOSITED, "Xe đã có đặt cọc đang hiệu lực.");
 		}
 
@@ -101,9 +108,9 @@ public class DepositService {
 
 		// B6: Phan biet online vs cash
 		if ("vnpay".equals(pm) || "zalopay".equals(pm)) {
-			// Online: status = AwaitingPayment, KHONG set xe RESERVED, KHONG tao FinancialTransaction
 			d.setStatus("AwaitingPayment");
 			depositRepository.save(d);
+			vehicleService.evictPublicVehicleCaches(v.getId());
 		} else {
 			// Cash/offline: giu nguyen flow cu
 			d.setStatus("Pending");
@@ -121,6 +128,7 @@ public class DepositService {
 			// Set xe RESERVED (chi voi cash)
 			v.setStatus(VehicleStatus.RESERVED.getDbValue());
 			vehicleRepository.save(v);
+			vehicleService.evictPublicVehicleCaches(v.getId());
 		}
 
 		// B7: Build payment URL cho online
@@ -187,7 +195,6 @@ public class DepositService {
 	public List<DepositListItemDto> page(long actorUserId, String jwtRole, String status, int page, int size) {
 		PageRequest pr = PageRequest.of(Math.max(0, page), Math.min(Math.max(1, size), 100));
 		Page<Deposit> pg = switch (jwtRole) {
-			// Customer: dung pageForCustomerVisible de an AwaitingPayment va Cancelled online
 			case ROLE_CUSTOMER -> depositRepository.pageForCustomerVisible(actorUserId, blankToNull(status), pr);
 			case ROLE_ADMIN -> depositRepository.pageAll(blankToNull(status), pr);
 			default -> {
@@ -195,14 +202,16 @@ public class DepositService {
 				yield depositRepository.pageForBranch(bid, blankToNull(status), pr);
 			}
 		};
-		return pg.getContent().stream().map(d -> toListItem(d)).toList();
+		List<Deposit> rows = pg.getContent();
+		Set<Long> vids = rows.stream().map(Deposit::getVehicleId).collect(Collectors.toCollection(LinkedHashSet::new));
+		Map<Long, VehicleDepositRowInfo> vmap = loadVehicleRowInfo(vids);
+		return rows.stream().map(d -> toListItem(d, vmap.get(d.getVehicleId()))).toList();
 	}
 
 	@Transactional(readOnly = true)
 	public Map<String, Object> pageMeta(long actorUserId, String jwtRole, String status, int page, int size) {
 		PageRequest pr = PageRequest.of(Math.max(0, page), Math.min(Math.max(1, size), 100));
 		Page<Deposit> pg = switch (jwtRole) {
-			// Customer: dung pageForCustomerVisible de an AwaitingPayment va Cancelled online
 			case ROLE_CUSTOMER -> depositRepository.pageForCustomerVisible(actorUserId, blankToNull(status), pr);
 			case ROLE_ADMIN -> depositRepository.pageAll(blankToNull(status), pr);
 			default -> {
@@ -226,7 +235,8 @@ public class DepositService {
 		if (ROLE_CUSTOMER.equals(jwtRole) && cancelIfExpiredOnlineDeposit(depositId)) {
 			d = depositRepository.findById(depositId).orElse(d);
 		}
-		return toListItem(d);
+		Map<Long, VehicleDepositRowInfo> vmap = loadVehicleRowInfo(Set.of(d.getVehicleId()));
+		return toListItem(d, vmap.get(d.getVehicleId()));
 	}
 
 	@Transactional(rollbackFor = Exception.class)
@@ -238,7 +248,10 @@ public class DepositService {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
 					"Cọc đã xác nhận thanh toán — dùng yêu cầu hủy có lý do (cancel-confirmed).");
 		}
-		if (!"Pending".equals(d.getStatus())) {
+		boolean awaitingOnline = "AwaitingPayment".equals(d.getStatus()) && d.getPaymentGateway() != null
+				&& ("vnpay".equalsIgnoreCase(d.getPaymentGateway().trim())
+						|| "zalopay".equalsIgnoreCase(d.getPaymentGateway().trim()));
+		if (!"Pending".equals(d.getStatus()) && !awaitingOnline) {
 			throw new BusinessException(ErrorCode.DEPOSIT_CANNOT_CANCEL, "Trạng thái cọc không cho phép hủy.");
 		}
 		if (body != null && body.getReason() != null && !body.getReason().isBlank()) {
@@ -273,6 +286,46 @@ public class DepositService {
 	}
 
 	@Transactional(rollbackFor = Exception.class)
+	public void syncOpenDepositsWhenVehicleSetAvailable(long vehicleId) {
+		long confirmed = depositRepository.countByVehicleIdAndStatusIn(vehicleId, List.of("Confirmed"));
+		if (confirmed > 0) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+					"Xe vẫn có cọc đã xác nhận (Confirmed). Hãy hủy cọc / hoàn tiền qua quy trình trước khi mở bán lại.");
+		}
+		List<Long> toClose = depositRepository
+				.findByVehicleIdAndStatusIn(vehicleId, List.of("AwaitingPayment", "Pending")).stream()
+				.map(Deposit::getId)
+				.toList();
+		for (Long depId : toClose) {
+			depositRepository.findById(depId).ifPresent(d -> {
+				if (!"Pending".equals(d.getStatus()) && !"AwaitingPayment".equals(d.getStatus())) {
+					return;
+				}
+				String n = d.getNotes() != null ? d.getNotes() + " | " : "";
+				d.setNotes(n + NOTE_SYNC_AVAILABLE);
+				finalizeDepositCancellation(d);
+			});
+		}
+	}
+
+	@Transactional(rollbackFor = Exception.class)
+	public void closeBlockingDepositsWhenOrderCancelled(long vehicleId, long customerId, long orderId) {
+		for (Deposit d : depositRepository.findByVehicleIdAndStatusIn(vehicleId, List.of("AwaitingPayment"))) {
+			String n = d.getNotes() != null ? d.getNotes() + " | " : "";
+			d.setNotes(n + NOTE_ORDER_CANCEL + orderId + "|dong checkout online");
+			finalizeDepositCancellation(d);
+		}
+		for (Deposit d : depositRepository.findByVehicleIdAndStatusIn(vehicleId, List.of("Pending"))) {
+			if (d.getCustomerId() != customerId) {
+				continue;
+			}
+			String n = d.getNotes() != null ? d.getNotes() + " | " : "";
+			d.setNotes(n + NOTE_ORDER_CANCEL + orderId);
+			finalizeDepositCancellation(d);
+		}
+	}
+
+	@Transactional(rollbackFor = Exception.class)
 	public void cancelPendingDepositAfterOnlinePaymentDeclined(long depositId) {
 		Deposit d = depositRepository.findById(depositId).orElse(null);
 		if (d == null) {
@@ -284,22 +337,12 @@ public class DepositService {
 					d.getStatus());
 			return;
 		}
-		// Luu status goc truoc khi doi de quyet dinh co can tra xe khong
-		String originalStatus = d.getStatus();
 		String n = d.getNotes() != null ? d.getNotes() + " | " : "";
 		d.setNotes(n + "Huy: Thanh toan khong thanh cong (tu dong)");
-		// AwaitingPayment: xe chua bao gio bi lock -> khong can tra ve
-		// Pending (cash da lock xe truoc do): can tra xe ve AVAILABLE
-		finalizeDepositCancellationWithOriginalStatus(d, originalStatus);
+		finalizeDepositCancellation(d);
 	}
 
 	private void finalizeDepositCancellation(Deposit d) {
-		finalizeDepositCancellationWithOriginalStatus(d, d.getStatus());
-	}
-
-	// Huy deposit va tra xe ve AVAILABLE neu can
-	// originalStatus: status goc truoc khi doi thanh Cancelled
-	private void finalizeDepositCancellationWithOriginalStatus(Deposit d, String originalStatus) {
 		d.setStatus("Cancelled");
 		depositRepository.save(d);
 		depositRepository.flush();
@@ -308,12 +351,8 @@ public class DepositService {
 			tx.setStatus("Failed");
 			financialTransactionRepository.save(tx);
 		});
-		// AwaitingPayment: xe chua bao gio bi lock -> khong can tra ve AVAILABLE
-		if ("AwaitingPayment".equals(originalStatus)) {
-			return;
-		}
-		// Pending/Confirmed da lock xe truoc do -> kiem tra va tra ve AVAILABLE
-		long stillActive = depositRepository.countByVehicleIdAndStatusIn(d.getVehicleId(), List.of("Pending", "Confirmed"));
+		long stillActive = depositRepository.countByVehicleIdAndStatusIn(d.getVehicleId(),
+				List.of("Pending", "Confirmed", "AwaitingPayment"));
 		if (stillActive == 0) {
 			vehicleRepository.findById(d.getVehicleId()).ifPresent(v -> {
 				if (VehicleStatus.RESERVED.getDbValue().equals(v.getStatus())) {
@@ -323,6 +362,8 @@ public class DepositService {
 				}
 			});
 		}
+		// Luôn evict cache khi cancel cọc, vì listingHoldActive có thể thay đổi
+		vehicleService.evictPublicVehicleCaches(d.getVehicleId());
 	}
 
 	@Transactional(rollbackFor = Exception.class)
@@ -336,10 +377,9 @@ public class DepositService {
 		if (gw == null || (!"vnpay".equalsIgnoreCase(gw.trim()) && !"zalopay".equalsIgnoreCase(gw.trim()))) {
 			return;
 		}
-		String originalStatus = d.getStatus();
 		String n = d.getNotes() != null ? d.getNotes() + " | " : "";
 		d.setNotes(n + "Huy: Qua thoi han thanh toan online (tu dong)");
-		finalizeDepositCancellationWithOriginalStatus(d, originalStatus);
+		finalizeDepositCancellation(d);
 	}
 
 	@Transactional(rollbackFor = Exception.class)
@@ -351,11 +391,10 @@ public class DepositService {
 		if (gw == null || gw.isBlank()) return false;
 		if (d.getCreatedAt() == null) return false;
 		long minutesAgo = Duration.between(d.getCreatedAt(), Instant.now()).toMinutes();
-		if (minutesAgo < 16) return false;
-		String originalStatus = d.getStatus();
+		if (minutesAgo < 6) return false;
 		String n = d.getNotes() != null ? d.getNotes() + " | " : "";
 		d.setNotes(n + "Huy: Qua thoi han thanh toan online (tu dong khi query)");
-		finalizeDepositCancellationWithOriginalStatus(d, originalStatus);
+		finalizeDepositCancellation(d);
 		return true;
 	}
 
@@ -366,14 +405,14 @@ public class DepositService {
 
 	public static int parseOnlinePaymentTimeoutMinutes(String raw) {
 		if (raw == null || raw.isBlank()) {
-			return 15;
+			return 5;
 		}
 		try {
 			int m = Integer.parseInt(raw.trim());
-			return m >= 1 && m <= 24 * 60 ? m : 15;
+			return m >= 1 && m <= 24 * 60 ? m : 5;
 		}
 		catch (NumberFormatException e) {
-			return 15;
+			return 5;
 		}
 	}
 
@@ -423,10 +462,12 @@ public class DepositService {
 		if (!VehicleStatus.RESERVED.getDbValue().equals(v.getStatus())) {
 			return;
 		}
-		long active = depositRepository.countByVehicleIdAndStatusIn(v.getId(), List.of("Pending", "Confirmed"));
+		long active = depositRepository.countByVehicleIdAndStatusIn(v.getId(),
+				List.of("Pending", "Confirmed", "AwaitingPayment"));
 		if (active == 0) {
 			v.setStatus(VehicleStatus.AVAILABLE.getDbValue());
 			vehicleRepository.save(v);
+			vehicleService.evictPublicVehicleCaches(v.getId());
 		}
 	}
 
@@ -471,8 +512,36 @@ public class DepositService {
 		assertCanViewDeposit(actorUserId, jwtRole, d);
 	}
 
-	private DepositListItemDto toListItem(Deposit d) {
-		String vehicleTitle = vehicleRepository.findById(d.getVehicleId()).map(Vehicle::getTitle).orElse("-");
+	private Map<Long, VehicleDepositRowInfo> loadVehicleRowInfo(Set<Long> vehicleIds) {
+		if (vehicleIds.isEmpty()) {
+			return Map.of();
+		}
+		List<Vehicle> vs = vehicleRepository.findAllByIdInWithImages(vehicleIds);
+		Map<Long, VehicleDepositRowInfo> out = new HashMap<>();
+		for (Vehicle v : vs) {
+			out.put(v.getId(), new VehicleDepositRowInfo(v.getTitle(), pickPrimaryVehicleImageUrl(v)));
+		}
+		return out;
+	}
+
+	private static String pickPrimaryVehicleImageUrl(Vehicle v) {
+		List<VehicleImage> imgs = v.getImages();
+		if (imgs == null || imgs.isEmpty()) {
+			return null;
+		}
+		return imgs.stream()
+				.filter(VehicleImage::isPrimaryImage)
+				.map(VehicleImage::getImageUrl)
+				.findFirst()
+				.orElseGet(() -> imgs.stream()
+						.min(Comparator.comparingInt(VehicleImage::getSortOrder))
+						.map(VehicleImage::getImageUrl)
+						.orElse(null));
+	}
+
+	private DepositListItemDto toListItem(Deposit d, VehicleDepositRowInfo vi) {
+		String vehicleTitle = vi != null ? vi.title() : "-";
+		String vehicleImageUrl = vi != null ? vi.imageUrl() : null;
 		String customerName = userRepository.findByIdAndDeletedFalse(d.getCustomerId()).map(User::getName).orElse("-");
 		String st = d.getStatus();
 		if ("Converted".equals(st)) {
@@ -485,12 +554,17 @@ public class DepositService {
 				.customerId(String.valueOf(d.getCustomerId()))
 				.customerName(customerName)
 				.vehicleTitle(vehicleTitle)
+				.vehicleImageUrl(vehicleImageUrl)
 				.amount(d.getAmount().longValue())
 				.depositDate(d.getDepositDate().toString())
 				.expiryDate(d.getExpiryDate().toString())
+				.createdAt(d.getCreatedAt() != null ? d.getCreatedAt().toString() : null)
 				.status(st)
 				.orderId(oid)
 				.build();
+	}
+
+	private record VehicleDepositRowInfo(String title, String imageUrl) {
 	}
 
 	private static String blankToNull(String s) {

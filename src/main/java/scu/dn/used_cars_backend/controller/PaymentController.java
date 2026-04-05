@@ -25,6 +25,7 @@ import scu.dn.used_cars_backend.dto.payment.PaymentCreateRequest;
 import scu.dn.used_cars_backend.dto.payment.PaymentUrlResponse;
 import scu.dn.used_cars_backend.dto.payment.VnpayClientReturnPayload;
 import scu.dn.used_cars_backend.dto.payment.VnpayOrderPaymentActionRequest;
+import scu.dn.used_cars_backend.dto.payment.ZaloPayReturnPayload;
 import scu.dn.used_cars_backend.dto.payment.ZaloPayStatusResponse;
 import scu.dn.used_cars_backend.security.AuthenticationDetailsUtils;
 import scu.dn.used_cars_backend.service.payment.PaymentApplicationService;
@@ -109,6 +110,27 @@ public class PaymentController {
 		long uid = AuthenticationDetailsUtils.requireUserId(authentication);
 		ZaloPayStatusResponse r = paymentApplicationService.customerQueryZaloPayStatus(uid, orderId, depositId);
 		return ResponseEntity.ok(ApiResponse.success(r));
+	}
+
+	@GetMapping("/zalopay/return")
+	public ResponseEntity<ApiResponse<ZaloPayReturnPayload>> zaloPayReturn(
+			@RequestParam(required = false) Long depositId,
+			@RequestParam(required = false) Long orderId,
+			Authentication authentication) {
+		Long uid = authentication != null
+				? AuthenticationDetailsUtils.optionalUserId(authentication)
+				: null;
+		ZaloPayReturnPayload result = paymentApplicationService
+				.processZaloPayReturn(uid, depositId, orderId);
+		return ResponseEntity.ok(ApiResponse.success(result));
+	}
+
+	@PostMapping("/order-payment/{id}/cancel")
+	public ResponseEntity<ApiResponse<Void>> cancelPendingOrderPayment(@PathVariable long id,
+			Authentication authentication) {
+		long uid = AuthenticationDetailsUtils.requireUserId(authentication);
+		paymentApplicationService.customerCancelPendingOrderPayment(uid, id);
+		return ResponseEntity.ok(ApiResponse.success(null));
 	}
 
 	@GetMapping(value = "/vnpay/ipn", produces = MediaType.APPLICATION_JSON_VALUE)

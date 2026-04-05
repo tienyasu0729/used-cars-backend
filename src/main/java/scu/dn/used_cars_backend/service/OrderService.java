@@ -51,6 +51,8 @@ public class OrderService {
 	private final OrderPaymentRepository orderPaymentRepository;
 	private final UserRepository userRepository;
 	private final StaffService staffService;
+	private final VehicleService vehicleService;
+	private final DepositService depositService;
 
 	@Transactional
 	public CreateOrderResponse create(long actorUserId, String jwtRole, CreateOrderRequest req) {
@@ -99,6 +101,7 @@ public class OrderService {
 		}
 		v.setStatus(VehicleStatus.RESERVED.getDbValue());
 		vehicleRepository.save(v);
+		vehicleService.evictPublicVehicleCaches(v.getId());
 		FinancialTransaction tx = new FinancialTransaction();
 		tx.setUserId(req.getCustomerId());
 		tx.setType("Purchase");
@@ -169,6 +172,7 @@ public class OrderService {
 		}
 		o.setStatus("Processing");
 		salesOrderRepository.save(o);
+		vehicleService.evictPublicVehicleCaches(o.getVehicle().getId());
 	}
 
 	@Transactional
@@ -192,10 +196,12 @@ public class OrderService {
 			d.setStatus("RefundPending");
 			depositRepository.save(d);
 		});
+		depositService.closeBlockingDepositsWhenOrderCancelled(v.getId(), o.getCustomerId(), orderId);
 		financialTransactionRepository.findByReferenceTypeAndReferenceId("Order", orderId).ifPresent(tx -> {
 			tx.setStatus("Failed");
 			financialTransactionRepository.save(tx);
 		});
+		vehicleService.evictPublicVehicleCaches(v.getId());
 	}
 
 	@Transactional
@@ -216,6 +222,7 @@ public class OrderService {
 			tx.setStatus("Completed");
 			financialTransactionRepository.save(tx);
 		});
+		vehicleService.evictPublicVehicleCaches(v.getId());
 	}
 
 	@Transactional

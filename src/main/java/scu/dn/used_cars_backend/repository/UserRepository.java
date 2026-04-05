@@ -116,4 +116,30 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 	@EntityGraph(attributePaths = { "userRoles", "userRoles.role" })
 	@Query("select u from User u where u.id in :ids and u.deleted = false and lower(u.status) = 'active'")
 	List<User> findActiveByIdIn(@Param("ids") List<Long> ids);
+
+	/**
+	 * Fan-out thông báo phiếu tư vấn: SalesStaff / BranchManager có StaffAssignments active tại chi nhánh
+	 * (kèm endDate hợp lệ).
+	 */
+	@Query("""
+			select distinct u.id from User u
+			join u.userRoles ur
+			join ur.role r
+			where r.name in ('SalesStaff', 'BranchManager')
+			and u.deleted = false and lower(u.status) = 'active'
+			and exists (
+				select 1 from StaffAssignment sa
+				where sa.userId = u.id and sa.branchId = :branchId and sa.active = true
+				and (sa.endDate is null or sa.endDate >= CURRENT_DATE)
+			)
+			""")
+	List<Long> findConsultationNotifyRecipientIdsAtBranch(@Param("branchId") int branchId);
+
+	@Query("""
+			select distinct u.id from User u
+			join u.userRoles ur
+			join ur.role r
+			where r.name = 'Admin' and u.deleted = false and lower(u.status) = 'active'
+			""")
+	List<Long> findActiveAdminUserIds();
 }

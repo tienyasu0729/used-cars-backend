@@ -229,6 +229,10 @@ public class GlobalExceptionHandler {
 			case NOTIFICATION_NOT_FOUND -> "Không tìm thấy thông báo.";
 			case ANNOUNCEMENT_NOT_FOUND -> "Không tìm thấy thông báo hệ thống.";
 			case MAIL_NOT_CONFIGURED -> "Chưa cấu hình gửi email (SMTP).";
+			case CONSULTATION_NOT_FOUND -> "Không tìm thấy phiếu tư vấn.";
+			case CONSULTATION_ACCESS_DENIED -> "Không có quyền thao tác phiếu tư vấn này.";
+			case CHAT_NOT_FOUND -> "Không tìm thấy hội thoại hoặc tin nhắn chat.";
+			case CHAT_ACCESS_DENIED -> "Không có quyền truy cập cuộc trò chuyện này.";
 		};
 	}
 }

@@ -23,10 +23,12 @@ public final class AuthenticationDetailsUtils {
 		if (authentication == null || authentication.getDetails() == null) {
 			return null;
 		}
-		try {
-			return (Long) authentication.getDetails();
-		} catch (ClassCastException e) {
-			return null;
-		}
+		Object d = authentication.getDetails();
+		return d instanceof Long id ? id : null;
+	}
+
+	/** Alias cho consultation/chat — cùng semantics với {@link #optionalUserId}. */
+	public static Long userIdIfPresent(Authentication authentication) {
+		return optionalUserId(authentication);
 	}
 }

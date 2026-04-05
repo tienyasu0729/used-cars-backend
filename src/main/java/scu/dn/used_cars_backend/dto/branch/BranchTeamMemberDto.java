@@ -12,6 +12,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class BranchTeamMemberDto {
 
+	/** Dùng cho chat / gán nghiệp vụ — công khai nhưng cần id hợp lệ. */
+	private Long userId;
 	private String name;
 	private String role;
 	/** URL ảnh đại diện (Cloudinary hoặc URL tuyệt đối) hoặc null. */

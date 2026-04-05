@@ -42,7 +42,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 			new AntPathRequestMatcher("/api/v1/vehicles/*", "GET"),
 			new AntPathRequestMatcher("/api/v1/vehicles/*/view", "POST"),
 			new AntPathRequestMatcher("/api/v1/vehicles/recently-viewed", "GET"),
-			new AntPathRequestMatcher("/api/v1/bookings/available-slots", "GET"));
+			new AntPathRequestMatcher("/api/v1/bookings/available-slots", "GET"),
+			// Sprint 9 — gửi phiếu tư vấn công khai; JWT tùy chọn để gắn customer_id
+			new AntPathRequestMatcher("/api/v1/consultations", "POST"));
 
 	private static final RequestMatcher WS_HANDSHAKE = new AntPathRequestMatcher("/ws/**");
 

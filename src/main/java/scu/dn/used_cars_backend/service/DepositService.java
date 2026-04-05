@@ -69,6 +69,7 @@ public class DepositService {
 	private final ZaloPayService zaloPayService;
 	private final ObjectMapper objectMapper;
 	private final VehicleService vehicleService;
+	private final InAppNotificationService inAppNotificationService;
 
 	@Transactional(rollbackFor = Exception.class)
 	public CreateDepositResponse create(long actorUserId, String jwtRole, CreateDepositRequest req, String clientIp) {
@@ -447,6 +448,8 @@ public class DepositService {
 			tx.setStatus("Completed");
 			financialTransactionRepository.save(tx);
 		});
+		inAppNotificationService.createNotification(d.getCustomerId(), "deposit", "Đặt cọc đã xác nhận",
+				"Đặt cọc xe đã được showroom xác nhận.", "/deposits");
 	}
 
 	private long resolveCustomerId(long actorUserId, String jwtRole, CreateDepositRequest req) {

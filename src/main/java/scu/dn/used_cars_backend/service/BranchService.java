@@ -147,6 +147,7 @@ public class BranchService {
 
 	private static BranchTeamMemberDto toTeamMember(User u, String roleLabel) {
 		return BranchTeamMemberDto.builder()
+				.userId(u.getId())
 				.name(u.getName())
 				.role(roleLabel)
 				.avatarUrl(blankToNull(u.getAvatarUrl()))

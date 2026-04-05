@@ -53,6 +53,7 @@ public class SecurityConfig {
 				.exceptionHandling(e -> e.authenticationEntryPoint(restAuthenticationEntryPoint))
 				.authorizeHttpRequests(auth -> auth
 						.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+						.requestMatchers(HttpMethod.POST, "/api/v1/consultations").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/register").permitAll()
 						.requestMatchers(HttpMethod.GET, "/api/v1/catalog/**").permitAll()
 						.requestMatchers(HttpMethod.GET, "/api/v1/branches", "/api/v1/branches/*", "/api/v1/branches/*/team")

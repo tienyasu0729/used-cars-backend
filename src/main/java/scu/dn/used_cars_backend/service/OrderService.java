@@ -53,6 +53,7 @@ public class OrderService {
 	private final StaffService staffService;
 	private final VehicleService vehicleService;
 	private final DepositService depositService;
+	private final InAppNotificationService inAppNotificationService;
 
 	@Transactional
 	public CreateOrderResponse create(long actorUserId, String jwtRole, CreateOrderRequest req) {
@@ -223,6 +224,8 @@ public class OrderService {
 			financialTransactionRepository.save(tx);
 		});
 		vehicleService.evictPublicVehicleCaches(v.getId());
+		inAppNotificationService.createNotification(o.getCustomerId(), "order", "Xe đã được bàn giao",
+				"Đơn hàng đã hoàn tất — xe đã được bàn giao thành công.", "/orders");
 	}
 
 	@Transactional

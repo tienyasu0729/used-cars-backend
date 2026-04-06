@@ -449,7 +449,7 @@ public class DepositService {
 			financialTransactionRepository.save(tx);
 		});
 		inAppNotificationService.createNotification(d.getCustomerId(), "deposit", "Đặt cọc đã xác nhận",
-				"Đặt cọc xe đã được showroom xác nhận.", "/deposits");
+				"Đặt cọc xe đã được showroom xác nhận.", "/dashboard/deposits");
 	}
 
 	private long resolveCustomerId(long actorUserId, String jwtRole, CreateDepositRequest req) {

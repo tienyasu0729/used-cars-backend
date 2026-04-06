@@ -40,6 +40,9 @@ public class ConsultationService {
 	private static final Set<String> VALID_STATUS = Set.of("pending", "processing", "resolved");
 	private static final Set<String> VALID_PRIORITY = Set.of("low", "medium", "high");
 
+	/** Cột body thông báo in-app tối đa 1000 ký tự (entity Notifications.body). */
+	private static final int NOTIFICATION_BODY_MAX_LEN = 1000;
+
 	private final ConsultationRepository consultationRepository;
 	private final VehicleRepository vehicleRepository;
 	private final UserRepository userRepository;
@@ -78,6 +81,7 @@ public class ConsultationService {
 		String title = "Phiếu tư vấn mới";
 		String body = "Có phiếu tư vấn mới từ " + c.getCustomerName();
 		if (c.getVehicle() == null) {
+			// Phiếu không gắn xe → chỉ gửi cho Admin
 			for (Long adminId : userRepository.findActiveAdminUserIds()) {
 				inAppNotificationService.createNotification(adminId, "consultation", title, body, "/admin/consultations");
 			}
@@ -87,10 +91,26 @@ public class ConsultationService {
 		var ids = userRepository.findConsultationNotifyRecipientIdsAtBranch(branchId);
 		var seen = new LinkedHashSet<Long>();
 		for (Long uid : ids) {
-			if (uid != null && seen.add(uid)) {
-				inAppNotificationService.createNotification(uid, "consultation", title, body, "/staff/consultations");
-			}
+			if (uid == null || !seen.add(uid)) continue;
+			// B1: Lấy thông tin user để biết role (Manager hay Staff)
+			User recipient = userRepository.findActiveByIdWithRoles(uid).orElse(null);
+			if (recipient == null) continue;
+			// B2: Phân biệt link theo role — Manager dùng /manager/, Staff dùng /staff/
+			boolean isManager = recipient.getUserRoles().stream()
+					.anyMatch(ur -> "BranchManager".equals(ur.getRole().getName()));
+			String link = isManager ? "/manager/consultations" : "/staff/consultations";
+			inAppNotificationService.createNotification(uid, "consultation", title, body, link);
 		}
+	}
+
+	/** Khách đăng nhập xem phiếu của mình (thông báo inbox / modal chi tiết). */
+	@Transactional(readOnly = true)
+	public ConsultationListItemDto getForCustomer(long customerUserId, long consultationId) {
+		Consultation c = loadConsultationOrThrow(consultationId);
+		if (c.getCustomer() == null || !c.getCustomer().getId().equals(customerUserId)) {
+			throw new BusinessException(ErrorCode.CONSULTATION_ACCESS_DENIED, "Bạn không xem được phiếu tư vấn này.");
+		}
+		return toListDto(c);
 	}
 
 	@Transactional(readOnly = true)
@@ -136,16 +156,51 @@ public class ConsultationService {
 	public void respond(long actorUserId, String jwtRole, long consultationId) {
 		Consultation c = loadConsultationOrThrow(consultationId);
 		assertCanAccess(c, actorUserId, jwtRole);
+		// B1: Chỉ phiếu đang chờ (pending) mới được tiếp nhận — tránh staff B ghi đè staff A
+		if (!"pending".equals(c.getStatus())) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+					"Chỉ phiếu đang chờ xử lý mới được tiếp nhận.");
+		}
 		User actor = userRepository.findByIdAndDeletedFalse(actorUserId)
 				.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 		c.setAssignedStaff(actor);
 		c.setStatus("processing");
 		consultationRepository.save(c);
 		if (c.getCustomer() != null) {
+			// link nội bộ: FE đọc consultation-ref:{id} để gọi GET /consultations/{id}/mine — không điều hướng trang.
 			inAppNotificationService.createNotification(c.getCustomer().getId(), "consultation",
 					"Phiếu tư vấn đang được xử lý",
-					"Đội ngũ showroom đang xử lý yêu cầu của bạn.", "/notifications");
+					buildCustomerConsultationProcessingBody(c),
+					"consultation-ref:" + c.getId());
 		}
+	}
+
+	/** Nội dung popup khách xem: xe (nếu có) + tin nhắn đã gửi + mã phiếu — cắt gọn nếu vượt DB. */
+	private static String buildCustomerConsultationProcessingBody(Consultation c) {
+		String vehicleLine;
+		if (c.getVehicle() != null) {
+			String t = c.getVehicle().getTitle();
+			vehicleLine = (t != null && !t.isBlank()) ? t.trim() : "Xe (chưa có tiêu đề)";
+		} else {
+			vehicleLine = "Không gắn xe cụ thể";
+		}
+		String msg = c.getMessage() != null ? c.getMessage().trim() : "";
+		if (msg.isEmpty()) {
+			msg = "—";
+		}
+		String prefix = "Đội ngũ showroom đang xử lý yêu cầu của bạn.\n\nXe quan tâm: " + vehicleLine
+				+ "\n\nNội dung bạn yêu cầu tư vấn:\n";
+		String suffix = "\n\nMã phiếu: #" + c.getId();
+		String full = prefix + msg + suffix;
+		if (full.length() <= NOTIFICATION_BODY_MAX_LEN) {
+			return full;
+		}
+		int budget = NOTIFICATION_BODY_MAX_LEN - prefix.length() - suffix.length() - 3;
+		if (budget < 24) {
+			return full.substring(0, NOTIFICATION_BODY_MAX_LEN - 3) + "...";
+		}
+		String clipped = msg.length() <= budget ? msg : msg.substring(0, budget) + "...";
+		return prefix + clipped + suffix;
 	}
 
 	@Transactional
@@ -156,6 +211,18 @@ public class ConsultationService {
 		}
 		Consultation c = loadConsultationOrThrow(consultationId);
 		assertCanAccess(c, actorUserId, jwtRole);
+		// B1: Kiểm tra state machine — chỉ cho phép chuyển chiều hợp lệ
+		String current = c.getStatus();
+		boolean validTransition = switch (current) {
+			case "pending"    -> Set.of("processing").contains(st);
+			case "processing" -> Set.of("resolved").contains(st);
+			case "resolved"   -> ROLE_ADMIN.equals(jwtRole); // Chỉ Admin mới có thể mở lại
+			default           -> false;
+		};
+		if (!validTransition) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+					"Không thể chuyển từ '" + current + "' sang '" + st + "'.");
+		}
 		c.setStatus(st);
 		consultationRepository.save(c);
 	}

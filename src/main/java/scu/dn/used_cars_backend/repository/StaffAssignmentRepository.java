@@ -30,4 +30,14 @@ public interface StaffAssignmentRepository extends JpaRepository<StaffAssignment
 			""")
 	List<StaffAssignment> findActiveByUserIdIn(@Param("userIds") Collection<Long> userIds);
 
+	/** Phân công còn hiệu lực tại chi nhánh (dùng khi Branches.manager_id chưa gán nhưng có StaffAssignment). */
+	@Query("""
+			select sa from StaffAssignment sa
+			where sa.branchId = :branchId
+				and sa.active = true
+				and (sa.endDate is null or sa.endDate >= CURRENT_DATE)
+			order by sa.id desc
+			""")
+	List<StaffAssignment> findCurrentlyActiveByBranchIdOrderByIdDesc(@Param("branchId") Integer branchId);
+
 }

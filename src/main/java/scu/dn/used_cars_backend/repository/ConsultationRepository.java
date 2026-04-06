@@ -12,6 +12,10 @@ import java.util.Optional;
 
 public interface ConsultationRepository extends JpaRepository<Consultation, Long>, JpaSpecificationExecutor<Consultation> {
 
+	/** Phiếu chờ mới nhất của khách (gắn chat — tiếp nhận từ StaffChat). */
+	@EntityGraph(attributePaths = { "vehicle", "vehicle.branch" })
+	Optional<Consultation> findTopByCustomer_IdAndStatusIgnoreCaseOrderByCreatedAtDesc(Long customerId, String status);
+
 	// KPI staff: chỉ pending có xe thuộc chi nhánh — phiếu không xe không tính.
 	@Query("""
 			select count(c) from Consultation c
@@ -23,4 +27,5 @@ public interface ConsultationRepository extends JpaRepository<Consultation, Long
 	@EntityGraph(attributePaths = { "customer", "vehicle", "vehicle.branch", "assignedStaff" })
 	@Query("select c from Consultation c where c.id = :id")
 	Optional<Consultation> findWithDetailsById(@Param("id") Long id);
+
 }

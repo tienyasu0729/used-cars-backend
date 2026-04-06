@@ -31,4 +31,9 @@ public interface BranchRepository extends JpaRepository<Branch, Integer> {
 
 	boolean existsByIdAndDeletedFalseAndManager_Id(Integer id, Long managerId);
 
+	/** Chi nhánh khác (id ≠ exclude) còn hoạt động và có manager — dùng chọn quản lý chi nhánh khác khi chuyển giao chat. */
+	@EntityGraph(attributePaths = "manager")
+	@Query("select b from Branch b where b.deleted = false and b.manager is not null and b.id <> :excludeBranchId")
+	List<Branch> findActiveWithManagerExcludingBranchId(@Param("excludeBranchId") int excludeBranchId);
+
 }

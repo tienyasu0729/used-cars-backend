@@ -21,6 +21,7 @@ import scu.dn.used_cars_backend.interaction.dto.MergeViewHistoryDataResponse;
 import scu.dn.used_cars_backend.interaction.dto.MergeViewHistoryRequest;
 import scu.dn.used_cars_backend.interaction.dto.MessageDataResponse;
 import scu.dn.used_cars_backend.interaction.dto.SaveVehicleRequest;
+import scu.dn.used_cars_backend.interaction.dto.SaveVehicleResult;
 import scu.dn.used_cars_backend.interaction.dto.SavedVehicleResponse;
 import scu.dn.used_cars_backend.interaction.dto.ViewHistoryResponse;
 import scu.dn.used_cars_backend.interaction.service.UserInteractionService;
@@ -40,8 +41,9 @@ public class UserInteractionController {
 	public ResponseEntity<ApiResponse<MessageDataResponse>> saveSaved(@Valid @RequestBody SaveVehicleRequest body,
 			Authentication authentication) {
 		long userId = requireUserId(authentication);
-		MessageDataResponse data = userInteractionService.saveVehicle(userId, body.getVehicleId());
-		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(data));
+		SaveVehicleResult result = userInteractionService.saveVehicle(userId, body.getVehicleId());
+		HttpStatus status = result.created() ? HttpStatus.CREATED : HttpStatus.OK;
+		return ResponseEntity.status(status).body(ApiResponse.success(result.data()));
 	}
 
 	@DeleteMapping("/users/me/saved-vehicles/{vehicleId}")

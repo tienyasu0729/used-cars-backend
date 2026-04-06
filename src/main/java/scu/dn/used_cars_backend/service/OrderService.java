@@ -225,7 +225,7 @@ public class OrderService {
 		});
 		vehicleService.evictPublicVehicleCaches(v.getId());
 		inAppNotificationService.createNotification(o.getCustomerId(), "order", "Xe đã được bàn giao",
-				"Đơn hàng đã hoàn tất — xe đã được bàn giao thành công.", "/orders");
+				"Đơn hàng đã hoàn tất — xe đã được bàn giao thành công.", "/dashboard/orders");
 	}
 
 	@Transactional

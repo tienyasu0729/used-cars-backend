@@ -18,6 +18,7 @@ import scu.dn.used_cars_backend.service.vehicle.InteractionVehicleSnapshot;
 import scu.dn.used_cars_backend.service.vehicle.VehicleReadPort;
 import scu.dn.used_cars_backend.interaction.dto.MergeViewHistoryDataResponse;
 import scu.dn.used_cars_backend.interaction.dto.MessageDataResponse;
+import scu.dn.used_cars_backend.interaction.dto.SaveVehicleResult;
 import scu.dn.used_cars_backend.interaction.dto.SavedVehicleResponse;
 import scu.dn.used_cars_backend.interaction.dto.ViewHistoryResponse;
 import scu.dn.used_cars_backend.interaction.entity.SavedVehicle;
@@ -49,9 +50,12 @@ public class UserInteractionService {
 	private final VehicleViewHistoryAsyncWriter vehicleViewHistoryAsyncWriter;
 	private final ObjectProvider<StringRedisTemplate> stringRedisTemplateProvider;
 
-	/** Lưu xe yêu thích — chỉ xe tồn tại và chưa xóa mềm (qua VehicleReadPort). */
+	/**
+	 * Lưu xe yêu thích — chỉ xe tồn tại và chưa xóa mềm (qua VehicleReadPort).
+	 * Đã lưu sẵn → idempotent, không ném 400 (tránh lệch state UI / double click).
+	 */
 	@Transactional
-	public MessageDataResponse saveVehicle(long userId, long vehicleId) {
+	public SaveVehicleResult saveVehicle(long userId, long vehicleId) {
 		// B1: lấy user hợp lệ
 		User user = userRepository.findByIdAndDeletedFalse(userId)
 				.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "Không tìm thấy người dùng."));
@@ -59,9 +63,9 @@ public class UserInteractionService {
 		if (!vehicleReadPort.existsForCustomerSave(vehicleId)) {
 			throw new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe.");
 		}
-		// B3: tránh trùng khóa
+		// B3: đã lưu → coi như thành công (idempotent)
 		if (savedVehicleRepository.existsByUser_IdAndVehicle_Id(userId, vehicleId)) {
-			throw new BusinessException(ErrorCode.VEHICLE_ALREADY_SAVED, "Xe đã được lưu.");
+			return new SaveVehicleResult(new MessageDataResponse("Xe đã có trong danh sách yêu thích"), false);
 		}
 		// B4: lưu bản ghi mới (FK vehicle qua reference Dev 2)
 		Vehicle vehicleRef = vehicleReadPort.vehicleFkReference(vehicleId);
@@ -70,7 +74,7 @@ public class UserInteractionService {
 		sv.setVehicle(vehicleRef);
 		sv.setId(new SavedVehicleId(user.getId(), vehicleId));
 		savedVehicleRepository.save(sv);
-		return new MessageDataResponse("Đã lưu xe vào danh sách yêu thích");
+		return new SaveVehicleResult(new MessageDataResponse("Đã lưu xe vào danh sách yêu thích"), true);
 	}
 
 	/** Bỏ lưu — nếu chưa có bản ghi thì VEHICLE_NOT_SAVED. */

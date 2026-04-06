@@ -44,6 +44,13 @@ public class ConsultationController {
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(r));
 	}
 
+	@GetMapping("/{id}/mine")
+	@PreAuthorize("hasRole('CUSTOMER')")
+	public ResponseEntity<ApiResponse<ConsultationListItemDto>> getMine(@PathVariable long id, Authentication auth) {
+		long uid = AuthenticationDetailsUtils.requireUserId(auth);
+		return ResponseEntity.ok(ApiResponse.success(consultationService.getForCustomer(uid, id)));
+	}
+
 	@GetMapping
 	@PreAuthorize("hasAnyRole('ADMIN','BRANCHMANAGER','SALESSTAFF')")
 	public ResponseEntity<ApiResponse<List<ConsultationListItemDto>>> list(Authentication auth,

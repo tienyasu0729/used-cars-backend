@@ -16,12 +16,15 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import scu.dn.used_cars_backend.common.api.ApiResponse;
+import scu.dn.used_cars_backend.dto.branch.BranchTeamMemberDto;
 import scu.dn.used_cars_backend.dto.chat.ChatConversationRowDto;
 import scu.dn.used_cars_backend.dto.chat.ChatMessageRowDto;
+import scu.dn.used_cars_backend.dto.chat.ChatTransferCandidateDto;
 import scu.dn.used_cars_backend.dto.chat.CreateChatConversationRequest;
 import scu.dn.used_cars_backend.dto.chat.CreateChatConversationResponse;
 import scu.dn.used_cars_backend.dto.chat.SendChatMessageRequest;
 import scu.dn.used_cars_backend.dto.chat.SendChatMessageResponse;
+import scu.dn.used_cars_backend.dto.chat.TransferChatConversationRequest;
 import scu.dn.used_cars_backend.security.AuthenticationDetailsUtils;
 import scu.dn.used_cars_backend.service.ChatService;
 
@@ -41,6 +44,14 @@ public class ChatController {
 	public ResponseEntity<ApiResponse<List<ChatConversationRowDto>>> listConversations(Authentication auth) {
 		long uid = AuthenticationDetailsUtils.requireUserId(auth);
 		return ResponseEntity.ok(ApiResponse.success(chatService.listConversations(uid)));
+	}
+
+	/** QL: NV/QL cùng chi nhánh + chi nhánh khác (tài khoản active) để mở chat nội bộ. */
+	@GetMapping("/manager-contact-options")
+	@PreAuthorize("hasRole('BRANCHMANAGER')")
+	public ResponseEntity<ApiResponse<List<BranchTeamMemberDto>>> managerChatContacts(Authentication auth) {
+		long uid = AuthenticationDetailsUtils.requireUserId(auth);
+		return ResponseEntity.ok(ApiResponse.success(chatService.listManagerChatContactOptions(uid)));
 	}
 
 	@PostMapping("/conversations")
@@ -71,5 +82,20 @@ public class ChatController {
 		long uid = AuthenticationDetailsUtils.requireUserId(auth);
 		SendChatMessageResponse r = chatService.sendMessage(uid, body);
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(r));
+	}
+
+	@GetMapping("/conversations/{id}/transfer-candidates")
+	public ResponseEntity<ApiResponse<List<ChatTransferCandidateDto>>> transferCandidates(Authentication auth,
+			@PathVariable long id) {
+		long uid = AuthenticationDetailsUtils.requireUserId(auth);
+		return ResponseEntity.ok(ApiResponse.success(chatService.listTransferCandidates(uid, id)));
+	}
+
+	@PostMapping("/conversations/{id}/transfer")
+	public ResponseEntity<ApiResponse<Void>> transferConversation(Authentication auth, @PathVariable long id,
+			@Valid @RequestBody TransferChatConversationRequest body) {
+		long uid = AuthenticationDetailsUtils.requireUserId(auth);
+		chatService.transferConversationToColleague(uid, id, body);
+		return ResponseEntity.ok(ApiResponse.success(null));
 	}
 }

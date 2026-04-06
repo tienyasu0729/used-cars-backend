@@ -18,11 +18,14 @@ import scu.dn.used_cars_backend.dto.manager.UpdateBranchSettingsRequest;
 import scu.dn.used_cars_backend.entity.Branch;
 import scu.dn.used_cars_backend.entity.BranchWorkingHours;
 import scu.dn.used_cars_backend.entity.User;
+import scu.dn.used_cars_backend.entity.StaffAssignment;
 import scu.dn.used_cars_backend.repository.BranchRepository;
 import scu.dn.used_cars_backend.repository.BranchWorkingHoursRepository;
+import scu.dn.used_cars_backend.repository.StaffAssignmentRepository;
 import scu.dn.used_cars_backend.repository.UserRepository;
 
 import java.time.LocalTime;
+import java.util.Optional;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -44,6 +47,7 @@ public class BranchService {
 
 	private final BranchRepository branchRepository;
 	private final UserRepository userRepository;
+	private final StaffAssignmentRepository staffAssignmentRepository;
 	private final BranchWorkingHoursRepository branchWorkingHoursRepository;
 	private final ObjectMapper objectMapper;
 
@@ -116,6 +120,129 @@ public class BranchService {
 		}
 
 		return out;
+	}
+
+	/**
+	 * NV bán hàng + QL (active) tại các chi nhánh khác {@code excludeBranchId} — dùng cho QL mở chat liên cửa hàng.
+	 */
+	@Transactional(readOnly = true)
+	public List<BranchTeamMemberDto> listStaffTeamsOutsideBranch(int excludeBranchId) {
+		List<BranchTeamMemberDto> out = new ArrayList<>();
+		Set<Long> seen = new HashSet<>();
+		for (Branch b : branchRepository.findAllByDeletedFalseOrderByIdAsc()) {
+			if (b.getId() == null || b.getId() == excludeBranchId) {
+				continue;
+			}
+			try {
+				for (BranchTeamMemberDto m : listPublicTeam(b.getId())) {
+					if (m.getUserId() == null || !seen.add(m.getUserId())) {
+						continue;
+					}
+					String baseRole = m.getRole() != null ? m.getRole() : "Nội bộ";
+					out.add(BranchTeamMemberDto.builder()
+							.userId(m.getUserId())
+							.name(m.getName())
+							.role(baseRole + " · " + b.getName())
+							.avatarUrl(m.getAvatarUrl())
+							.build());
+				}
+			} catch (BusinessException ex) {
+				// bỏ qua chi nhánh lỗi cấu hình
+			}
+		}
+		return out;
+	}
+
+	/**
+	 * Đồng nghiệp cùng chi nhánh (trừ {@code excludeUserId}) + toàn bộ NV/QL active chi nhánh khác (dedupe).
+	 */
+	@Transactional(readOnly = true)
+	public List<BranchTeamMemberDto> listManagerCrossBranchChatContacts(int myBranchId, long excludeUserId) {
+		List<BranchTeamMemberDto> out = new ArrayList<>();
+		Set<Long> seen = new HashSet<>();
+		for (BranchTeamMemberDto m : listPublicTeam(myBranchId)) {
+			if (m.getUserId() == null || m.getUserId().equals(excludeUserId) || !seen.add(m.getUserId())) {
+				continue;
+			}
+			out.add(m);
+		}
+		for (BranchTeamMemberDto m : listStaffTeamsOutsideBranch(myBranchId)) {
+			if (m.getUserId() == null || m.getUserId().equals(excludeUserId) || !seen.add(m.getUserId())) {
+				continue;
+			}
+			out.add(m);
+		}
+		out.sort(Comparator.comparing(BranchTeamMemberDto::getName, String.CASE_INSENSITIVE_ORDER));
+		return out;
+	}
+
+	/**
+	 * Quản lý chi nhánh tại các chi nhánh khác {@code excludeBranchId}.
+	 * Ưu tiên cột {@code Branches.manager_id}; nếu null thì tìm user có role BranchManager trong
+	 * {@code StaffAssignments} active tại chi nhánh đó (đúng với nhiều bộ seed).
+	 */
+	@Transactional(readOnly = true)
+	public List<BranchTeamMemberDto> listManagersOfOtherBranches(int excludeBranchId) {
+		List<BranchTeamMemberDto> out = new ArrayList<>();
+		Set<Long> seen = new HashSet<>();
+		for (Branch b : branchRepository.findAllByDeletedFalseOrderByIdAsc()) {
+			if (b.getId() == null || b.getId() == excludeBranchId) {
+				continue;
+			}
+			Optional<Long> mgrId = resolveBranchManagerUserId(b);
+			if (mgrId.isEmpty()) {
+				continue;
+			}
+			User mgr = userRepository.findActiveByIdWithRoles(mgrId.get()).orElse(null);
+			if (mgr == null || Boolean.TRUE.equals(mgr.getDeleted())) {
+				continue;
+			}
+			if (mgr.getStatus() == null || !"active".equalsIgnoreCase(mgr.getStatus().trim())) {
+				continue;
+			}
+			if (!hasBranchManagerRole(mgr)) {
+				continue;
+			}
+			if (!seen.add(mgr.getId())) {
+				continue;
+			}
+			out.add(BranchTeamMemberDto.builder()
+					.userId(mgr.getId())
+					.name(mgr.getName())
+					.role("Quản lý chi nhánh — " + b.getName())
+					.avatarUrl(blankToNull(mgr.getAvatarUrl()))
+					.build());
+		}
+		return out;
+	}
+
+	/**
+	 * 1) {@code Branches.manager_id} nếu user đó còn active và có role BranchManager.
+	 * 2) Ngược lại: StaffAssignments hiệu lực tại chi nhánh + role BranchManager.
+	 */
+	private Optional<Long> resolveBranchManagerUserId(Branch b) {
+		User linked = b.getManager();
+		if (linked != null && linked.getId() != null) {
+			User loaded = userRepository.findActiveByIdWithRoles(linked.getId()).orElse(null);
+			if (loaded != null && !Boolean.TRUE.equals(loaded.getDeleted()) && hasBranchManagerRole(loaded)) {
+				return Optional.of(loaded.getId());
+			}
+		}
+		for (StaffAssignment sa : staffAssignmentRepository.findCurrentlyActiveByBranchIdOrderByIdDesc(b.getId())) {
+			User u = userRepository.findActiveByIdWithRoles(sa.getUserId()).orElse(null);
+			if (u != null && !Boolean.TRUE.equals(u.getDeleted()) && hasBranchManagerRole(u)) {
+				return Optional.of(u.getId());
+			}
+		}
+		return Optional.empty();
+	}
+
+	private static boolean hasBranchManagerRole(User u) {
+		if (u.getUserRoles() == null) {
+			return false;
+		}
+		return u.getUserRoles().stream()
+				.anyMatch(ur -> ur.getRole() != null && "BranchManager".equals(ur.getRole().getName()));
 	}
 
 	private static boolean hasSalesOrManagerRole(User u) {

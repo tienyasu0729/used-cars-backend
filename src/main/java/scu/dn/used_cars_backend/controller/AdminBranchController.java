@@ -28,7 +28,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/admin/branches")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_BRANCHES_VIEW')")
 public class AdminBranchController {
 
 	private final AdminBranchService adminBranchService;
@@ -39,17 +39,20 @@ public class AdminBranchController {
 	}
 
 	@PostMapping
+	@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_BRANCHES_CREATE')")
 	public ResponseEntity<ApiResponse<AdminBranchListItemDto>> create(@Valid @RequestBody CreateAdminBranchRequest body) {
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(adminBranchService.createBranch(body)));
 	}
 
 	@PutMapping("/{id}")
+	@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_BRANCHES_UPDATE')")
 	public ResponseEntity<ApiResponse<AdminBranchListItemDto>> update(@PathVariable int id,
 			@Valid @RequestBody UpdateAdminBranchRequest body) {
 		return ResponseEntity.ok(ApiResponse.success(adminBranchService.updateBranch(id, body)));
 	}
 
 	@DeleteMapping("/{id}")
+	@PreAuthorize("hasRole('ADMIN')")
 	public ResponseEntity<ApiResponse<Map<String, Boolean>>> delete(@PathVariable int id) {
 		adminBranchService.softDeleteBranch(id);
 		return ResponseEntity.ok(ApiResponse.success(Map.of("success", true)));

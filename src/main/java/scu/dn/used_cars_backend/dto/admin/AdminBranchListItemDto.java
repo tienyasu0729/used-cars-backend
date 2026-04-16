@@ -1,5 +1,7 @@
 package scu.dn.used_cars_backend.dto.admin;
 
+import java.math.BigDecimal;
+
 import lombok.Builder;
 import lombok.Value;
 
@@ -16,4 +18,7 @@ public class AdminBranchListItemDto {
 	long staffCount;
 	/** Ảnh đại diện thẻ admin: URL đầu tiên từ `showroom_image_urls` (JSON), null nếu không có. */
 	String imageUrl;
+	/** Tọa độ GPS chi nhánh (nullable nếu chưa cập nhật). */
+	BigDecimal lat;
+	BigDecimal lng;
 }

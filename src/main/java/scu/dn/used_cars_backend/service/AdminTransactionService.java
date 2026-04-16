@@ -390,42 +390,39 @@ public class AdminTransactionService {
 		return merged;
 	}
 
-	public byte[] exportCsv(TransactionFilter filter, long actorUserId, boolean isAdmin) {
+	public byte[] exportExcel(TransactionFilter filter, long actorUserId, boolean isAdmin) {
 		List<TransactionRowDto> rows = listMergedForExport(filter, actorUserId, isAdmin);
-		StringBuilder sb = new StringBuilder();
-		sb.append('\uFEFF');
-		sb.append("ID,Loại,Nguồn,Số tiền,Trạng thái,Cổng TT,Mã GD,Khách hàng,SĐT,Xe,Chi nhánh,Mã đơn/cọc,Ngày tạo,Ngày TT\n");
-		for (TransactionRowDto r : rows) {
-			sb.append(csv(r.getId() != null ? String.valueOf(r.getId()) : ""))
-					.append(',')
-					.append(csv(r.getType()))
-					.append(',')
-					.append(csv(r.getSource()))
-					.append(',')
-					.append(csv(r.getAmount() != null ? r.getAmount().toPlainString() : ""))
-					.append(',')
-					.append(csv(r.getStatusLabel()))
-					.append(',')
-					.append(csv(r.getPaymentGateway()))
-					.append(',')
-					.append(csv(r.getGatewayTxnRef()))
-					.append(',')
-					.append(csv(r.getCustomerName()))
-					.append(',')
-					.append(csv(r.getCustomerPhone()))
-					.append(',')
-					.append(csv(r.getVehicleTitle()))
-					.append(',')
-					.append(csv(r.getBranchName()))
-					.append(',')
-					.append(csv(orderOrDepositRef(r)))
-					.append(',')
-					.append(csv(r.getCreatedAt()))
-					.append(',')
-					.append(csv(r.getPaidAt()))
-					.append('\n');
+		try (org.apache.poi.xssf.usermodel.XSSFWorkbook wb = new org.apache.poi.xssf.usermodel.XSSFWorkbook()) {
+			org.apache.poi.ss.usermodel.Sheet sheet = wb.createSheet("Giao dịch");
+			String[] headers = {"ID", "Loại", "Nguồn", "Số tiền", "Trạng thái", "Cổng TT", "Mã GD", "Khách hàng", "SĐT", "Xe", "Chi nhánh", "Mã đơn/cọc", "Ngày tạo", "Ngày TT"};
+			org.apache.poi.ss.usermodel.Row headerRow = sheet.createRow(0);
+			for (int i = 0; i < headers.length; i++) {
+				headerRow.createCell(i).setCellValue(headers[i]);
+			}
+			int idx = 1;
+			for (TransactionRowDto r : rows) {
+				org.apache.poi.ss.usermodel.Row row = sheet.createRow(idx++);
+				row.createCell(0).setCellValue(r.getId() != null ? r.getId() : 0);
+				row.createCell(1).setCellValue(safe(r.getType()));
+				row.createCell(2).setCellValue(safe(r.getSource()));
+				row.createCell(3).setCellValue(r.getAmount() != null ? r.getAmount().doubleValue() : 0);
+				row.createCell(4).setCellValue(safe(r.getStatusLabel()));
+				row.createCell(5).setCellValue(safe(r.getPaymentGateway()));
+				row.createCell(6).setCellValue(safe(r.getGatewayTxnRef()));
+				row.createCell(7).setCellValue(safe(r.getCustomerName()));
+				row.createCell(8).setCellValue(safe(r.getCustomerPhone()));
+				row.createCell(9).setCellValue(safe(r.getVehicleTitle()));
+				row.createCell(10).setCellValue(safe(r.getBranchName()));
+				row.createCell(11).setCellValue(orderOrDepositRef(r));
+				row.createCell(12).setCellValue(safe(r.getCreatedAt()));
+				row.createCell(13).setCellValue(safe(r.getPaidAt()));
+			}
+			java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+			wb.write(out);
+			return out.toByteArray();
+		} catch (java.io.IOException e) {
+			throw new RuntimeException("Lỗi tạo file Excel", e);
 		}
-		return sb.toString().getBytes(StandardCharsets.UTF_8);
 	}
 
 	private static String orderOrDepositRef(TransactionRowDto r) {
@@ -435,12 +432,8 @@ public class AdminTransactionService {
 		return r.getDepositId() != null ? String.valueOf(r.getDepositId()) : "";
 	}
 
-	private static String csv(String s) {
-		if (s == null) {
-			return "\"\"";
-		}
-		String t = s.replace("\"", "\"\"");
-		return "\"" + t + "\"";
+	private static String safe(String s) {
+		return s != null ? s : "";
 	}
 
 	private Integer resolveBranchIdForQuery(Long branchIdParam, long actorUserId, boolean isAdmin) {

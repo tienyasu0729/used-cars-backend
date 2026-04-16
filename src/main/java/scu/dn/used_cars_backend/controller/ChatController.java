@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -96,6 +97,14 @@ public class ChatController {
 			@Valid @RequestBody TransferChatConversationRequest body) {
 		long uid = AuthenticationDetailsUtils.requireUserId(auth);
 		chatService.transferConversationToColleague(uid, id, body);
+		return ResponseEntity.ok(ApiResponse.success(null));
+	}
+
+	// Ẩn (xóa) hội thoại khỏi danh sách — hội thoại sẽ hiện lại khi có tin nhắn mới
+	@DeleteMapping("/conversations/{id}")
+	public ResponseEntity<ApiResponse<Void>> hideConversation(Authentication auth, @PathVariable long id) {
+		long uid = AuthenticationDetailsUtils.requireUserId(auth);
+		chatService.hideConversation(uid, id);
 		return ResponseEntity.ok(ApiResponse.success(null));
 	}
 }

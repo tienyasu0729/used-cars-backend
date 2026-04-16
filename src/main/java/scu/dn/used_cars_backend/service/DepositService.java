@@ -70,6 +70,7 @@ public class DepositService {
 	private final ObjectMapper objectMapper;
 	private final VehicleService vehicleService;
 	private final InAppNotificationService inAppNotificationService;
+	private final EmailNotificationService emailNotificationService;
 
 	@Transactional(rollbackFor = Exception.class)
 	public CreateDepositResponse create(long actorUserId, String jwtRole, CreateDepositRequest req, String clientIp) {
@@ -114,6 +115,8 @@ public class DepositService {
 		if ("vnpay".equals(pm) || "zalopay".equals(pm)) {
 			d.setStatus("AwaitingPayment");
 			depositRepository.save(d);
+			v.setStatus(VehicleStatus.RESERVED.getDbValue());
+			vehicleRepository.save(v);
 			vehicleService.evictPublicVehicleCaches(v.getId());
 		} else {
 			// Cash/offline: giu nguyen flow cu
@@ -128,6 +131,7 @@ public class DepositService {
 			tx.setDescription("Dat coc xe #" + d.getId());
 			tx.setReferenceId(d.getId());
 			tx.setReferenceType("Deposit");
+			tx.setPaymentGateway("cash");
 			financialTransactionRepository.save(tx);
 			// Set xe RESERVED (chi voi cash)
 			v.setStatus(VehicleStatus.RESERVED.getDbValue());
@@ -140,6 +144,12 @@ public class DepositService {
 			}
 			d.setGatewayTxnRef(cashRef);
 			depositRepository.save(d);
+
+			// Gui email thong bao dat coc thanh cong (async, khong anh huong luong chinh)
+			User customer = userRepository.findById(customerId).orElse(null);
+			if (customer != null) {
+				emailNotificationService.sendDepositSuccessEmailAsync(d, v, customer);
+			}
 		}
 
 		// B7: Build payment URL cho online
@@ -215,8 +225,13 @@ public class DepositService {
 		};
 		List<Deposit> rows = pg.getContent();
 		Set<Long> vids = rows.stream().map(Deposit::getVehicleId).collect(Collectors.toCollection(LinkedHashSet::new));
+		Set<Long> cids = rows.stream().map(Deposit::getCustomerId).collect(Collectors.toCollection(LinkedHashSet::new));
 		Map<Long, VehicleDepositRowInfo> vmap = loadVehicleRowInfo(vids);
-		return rows.stream().map(d -> toListItem(d, vmap.get(d.getVehicleId()))).toList();
+		Map<Long, String> customerNames = loadCustomerNames(cids);
+		return rows.stream()
+				.map(d -> toListItem(d, vmap.get(d.getVehicleId()),
+						customerNames.getOrDefault(d.getCustomerId(), "-")))
+				.toList();
 	}
 
 	@Transactional(readOnly = true)
@@ -247,7 +262,9 @@ public class DepositService {
 			d = depositRepository.findById(depositId).orElse(d);
 		}
 		Map<Long, VehicleDepositRowInfo> vmap = loadVehicleRowInfo(Set.of(d.getVehicleId()));
-		return toListItem(d, vmap.get(d.getVehicleId()));
+		Map<Long, String> customerNames = loadCustomerNames(Set.of(d.getCustomerId()));
+		return toListItem(d, vmap.get(d.getVehicleId()),
+				customerNames.getOrDefault(d.getCustomerId(), "-"));
 	}
 
 	@Transactional(rollbackFor = Exception.class)
@@ -402,7 +419,17 @@ public class DepositService {
 		if (gw == null || gw.isBlank()) return false;
 		if (d.getCreatedAt() == null) return false;
 		long minutesAgo = Duration.between(d.getCreatedAt(), Instant.now()).toMinutes();
-		if (minutesAgo < 6) return false;
+		int timeoutMinutes;
+		try {
+			String raw = paymentGatewayConfigService
+					.getOptional(PaymentGatewayConfigService.KEY_DEPOSIT_ONLINE_PAYMENT_TIMEOUT_MINUTES);
+			timeoutMinutes = parseOnlinePaymentTimeoutMinutes(raw);
+		}
+		catch (Exception e) {
+			log.warn("Không đọc được timeout cọc online, dùng fallback 6 phút: {}", e.toString());
+			timeoutMinutes = 6;
+		}
+		if (minutesAgo < timeoutMinutes) return false;
 		String n = d.getNotes() != null ? d.getNotes() + " | " : "";
 		d.setNotes(n + "Huy: Qua thoi han thanh toan online (tu dong khi query)");
 		finalizeDepositCancellation(d);
@@ -534,6 +561,19 @@ public class DepositService {
 		assertCanViewDeposit(actorUserId, jwtRole, d);
 	}
 
+	private Map<Long, String> loadCustomerNames(Set<Long> userIds) {
+		if (userIds.isEmpty()) {
+			return Map.of();
+		}
+		List<User> users = userRepository.findAllByIdInAndDeletedFalse(userIds);
+		Map<Long, String> out = new HashMap<>();
+		for (User u : users) {
+			String n = u.getName();
+			out.put(u.getId(), n != null && !n.isBlank() ? n : "-");
+		}
+		return out;
+	}
+
 	private Map<Long, VehicleDepositRowInfo> loadVehicleRowInfo(Set<Long> vehicleIds) {
 		if (vehicleIds.isEmpty()) {
 			return Map.of();
@@ -561,10 +601,9 @@ public class DepositService {
 						.orElse(null));
 	}
 
-	private DepositListItemDto toListItem(Deposit d, VehicleDepositRowInfo vi) {
+	private DepositListItemDto toListItem(Deposit d, VehicleDepositRowInfo vi, String customerName) {
 		String vehicleTitle = vi != null ? vi.title() : "-";
 		String vehicleImageUrl = vi != null ? vi.imageUrl() : null;
-		String customerName = userRepository.findByIdAndDeletedFalse(d.getCustomerId()).map(User::getName).orElse("-");
 		String st = d.getStatus();
 		if ("Converted".equals(st)) {
 			st = "ConvertedToOrder";

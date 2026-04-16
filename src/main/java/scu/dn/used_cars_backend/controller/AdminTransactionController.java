@@ -82,7 +82,7 @@ public class AdminTransactionController {
 		return ResponseEntity.ok(ApiResponse.success(transactionService.detail(source, id, userId, admin)));
 	}
 
-	@GetMapping(value = "/export", produces = "text/csv; charset=UTF-8")
+	@GetMapping(value = "/export", produces = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 	public ResponseEntity<byte[]> export(
 			@RequestParam(required = false) String source,
 			@RequestParam(required = false) String status,
@@ -96,11 +96,11 @@ public class AdminTransactionController {
 		boolean admin = JwtRoleNames.isAdmin(authentication);
 		TransactionFilter filter = new TransactionFilter(source, status, gateway, branchId, keyword, from, to, 0,
 				5000);
-		byte[] body = transactionService.exportCsv(filter, userId, admin);
+		byte[] body = transactionService.exportExcel(filter, userId, admin);
 		String day = LocalDate.now(VN).format(DateTimeFormatter.BASIC_ISO_DATE);
 		return ResponseEntity.ok()
-				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"transactions_" + day + ".csv\"")
-				.contentType(new MediaType("text", "csv", java.nio.charset.StandardCharsets.UTF_8))
+				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"transactions_" + day + ".xlsx\"")
+				.contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
 				.body(body);
 	}
 }

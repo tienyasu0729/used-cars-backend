@@ -73,6 +73,24 @@ public class MaintenanceService {
 		return toResponse(saved);
 	}
 
+	/**
+	 * Lịch sử bảo dưỡng công khai — không cần đăng nhập.
+	 * Chỉ kiểm tra xe tồn tại và hiển thị công khai (deleted=false, status != Hidden).
+	 */
+	@Transactional(readOnly = true)
+	public Page<MaintenanceHistoryResponse> getPublicMaintenanceHistory(long vehicleId, int page, int size) {
+		// B1: kiểm tra xe tồn tại và hiển thị công khai
+		vehicleRepository.findPublicDetailById(vehicleId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
+
+		// B2: truy vấn paginated
+		Page<VehicleMaintenanceHistory> entities = maintenanceRepo
+				.findByVehicle_IdOrderByMaintenanceDateDesc(vehicleId, PageRequest.of(page, size));
+
+		// B3: map entity → DTO
+		return entities.map(this::toResponse);
+	}
+
 	/** Map entity → response DTO. */
 	private MaintenanceHistoryResponse toResponse(VehicleMaintenanceHistory e) {
 		return MaintenanceHistoryResponse.builder()

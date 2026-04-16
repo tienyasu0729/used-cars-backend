@@ -35,4 +35,16 @@ public interface SubcategoryRepository extends JpaRepository<Subcategory, Intege
 			""")
 	Page<Subcategory> searchPage(@Param("q") String q, @Param("categoryId") Integer categoryId, Pageable pageable);
 
+	/** Gợi ý hãng/dòng xe: trả cặp [category.name, subcategory.name] để service ghép text */
+	@Query("""
+			select c.name, s.name from Subcategory s
+			join s.category c
+			where s.status = 'active'
+			and (lower(s.name) like lower(concat('%', :q, '%'))
+			  or lower(s.nameNormalized) like lower(concat('%', :q, '%'))
+			  or lower(c.name) like lower(concat('%', :q, '%')))
+			order by s.name asc
+			""")
+	List<Object[]> findSuggestionsByKeyword(@Param("q") String q, Pageable pageable);
+
 }

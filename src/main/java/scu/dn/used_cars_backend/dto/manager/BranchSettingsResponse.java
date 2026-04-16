@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalTime;
 import java.util.List;
 
@@ -26,4 +27,8 @@ public class BranchSettingsResponse {
 	private List<BranchDayScheduleDto> dailySchedules;
 	/** URL ảnh showroom (tối đa 15 ở tầng request). */
 	private List<String> showroomImageUrls;
+
+	// Tọa độ GPS chi nhánh
+	private BigDecimal lat;
+	private BigDecimal lng;
 }

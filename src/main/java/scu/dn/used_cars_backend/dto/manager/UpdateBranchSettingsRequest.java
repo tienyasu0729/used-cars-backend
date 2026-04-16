@@ -6,6 +6,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -30,4 +31,8 @@ public class UpdateBranchSettingsRequest {
 
 	@Size(max = 15, message = "Tối đa 15 ảnh showroom.")
 	private List<@Size(max = 2048, message = "Mỗi URL tối đa 2048 ký tự.") String> showroomImageUrls = new ArrayList<>();
+
+	// Tọa độ GPS (nullable — không bắt buộc, tương thích ngược client cũ)
+	private BigDecimal lat;
+	private BigDecimal lng;
 }

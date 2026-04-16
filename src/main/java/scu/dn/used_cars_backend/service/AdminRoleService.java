@@ -38,6 +38,7 @@ public class AdminRoleService {
 	private final PermissionRepository permissionRepository;
 	private final UserRoleRepository userRoleRepository;
 	private final UserRepository userRepository;
+	private final RolePermissionCacheService rolePermissionCacheService;
 
 	@Transactional(readOnly = true)
 	public List<AdminRoleListItemDto> listRoles() {
@@ -101,6 +102,7 @@ public class AdminRoleService {
 		roleRepository.save(role);
 		rolePermissionRepository.deleteAllByRole_Id(roleId);
 		saveRolePermissions(role, perms);
+		rolePermissionCacheService.evictCache(role.getName());
 		return toDto(role);
 	}
 
@@ -130,6 +132,7 @@ public class AdminRoleService {
 				userRoleRepository.save(link);
 			}
 		}
+		rolePermissionCacheService.evictCache(role.getName());
 		rolePermissionRepository.deleteAllByRole_Id(roleId);
 		roleRepository.delete(role);
 	}

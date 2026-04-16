@@ -9,8 +9,12 @@ import org.springframework.transaction.annotation.Transactional;
 import scu.dn.used_cars_backend.common.exception.BusinessException;
 import scu.dn.used_cars_backend.common.exception.ErrorCode;
 import scu.dn.used_cars_backend.dto.sales.TransactionRowDto;
+import scu.dn.used_cars_backend.entity.Deposit;
 import scu.dn.used_cars_backend.entity.FinancialTransaction;
+import scu.dn.used_cars_backend.entity.SalesOrder;
+import scu.dn.used_cars_backend.repository.DepositRepository;
 import scu.dn.used_cars_backend.repository.FinancialTransactionRepository;
+import scu.dn.used_cars_backend.repository.SalesOrderRepository;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -30,6 +34,8 @@ public class TransactionQueryService {
 	private static final ZoneId VN = ZoneId.of("Asia/Ho_Chi_Minh");
 
 	private final FinancialTransactionRepository financialTransactionRepository;
+	private final DepositRepository depositRepository;
+	private final SalesOrderRepository salesOrderRepository;
 	private final StaffService staffService;
 
 	@Transactional(readOnly = true)
@@ -74,17 +80,40 @@ public class TransactionQueryService {
 	}
 
 	private TransactionRowDto toDto(FinancialTransaction t) {
+		// Lay paymentGateway tu FinancialTransaction, neu null thi fallback tu entity lien quan
+		String gateway = t.getPaymentGateway();
+		if (gateway == null || gateway.isBlank()) {
+			gateway = resolveGatewayFallback(t.getReferenceType(), t.getReferenceId());
+		}
 		return TransactionRowDto.builder()
 				.id(t.getId())
 				.type(t.getType())
 				.amount(t.getAmount().toPlainString())
 				.description(t.getDescription())
 				.status(t.getStatus())
-				.paymentGateway(t.getPaymentGateway())
+				.paymentGateway(gateway)
 				.referenceType(t.getReferenceType())
 				.referenceId(t.getReferenceId())
 				.createdAt(t.getCreatedAt().toString())
 				.build();
+	}
+
+	// Fallback: lay paymentGateway tu Deposit hoac Order khi FinancialTransaction chua co
+	private String resolveGatewayFallback(String referenceType, Long referenceId) {
+		if (referenceType == null || referenceId == null) {
+			return null;
+		}
+		if ("Deposit".equals(referenceType)) {
+			return depositRepository.findById(referenceId)
+					.map(Deposit::getPaymentGateway)
+					.orElse(null);
+		}
+		if ("Order".equals(referenceType)) {
+			return salesOrderRepository.findById(referenceId)
+					.map(SalesOrder::getPaymentMethod)
+					.orElse(null);
+		}
+		return null;
 	}
 
 	private static String blankToNull(String s) {

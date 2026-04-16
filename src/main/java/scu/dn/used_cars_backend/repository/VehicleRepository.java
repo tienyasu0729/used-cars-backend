@@ -37,7 +37,10 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 			select v from Vehicle v
 			where v.deleted = false
 			and v.status <> 'Hidden'
-			and (:keyword is null or lower(v.title) like lower(concat('%', :keyword, '%')))
+			and (:keyword is null
+			  or lower(v.title) like lower(concat('%', :keyword, '%'))
+			  or lower(v.category.name) like lower(concat('%', :keyword, '%'))
+			  or lower(v.subcategory.name) like lower(concat('%', :keyword, '%')))
 			and (:categoryId is null or v.category.id = :categoryId)
 			and (:subcategoryId is null or v.subcategory.id = :subcategoryId)
 			and (:minPrice is null or (v.price is not null and v.price >= :minPrice))
@@ -167,5 +170,23 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select v from Vehicle v where v.id = :id")
 	Optional<Vehicle> findByIdForUpdate(@Param("id") Long id);
+
+	/** Gợi ý title xe đang bán */
+	@Query("""
+			select distinct v.title from Vehicle v
+			where v.deleted = false and v.status = 'Available'
+			and lower(v.title) like lower(concat('%', :q, '%'))
+			order by v.title asc
+			""")
+	List<String> findTitleSuggestions(@Param("q") String q, Pageable pageable);
+
+	/** Lấy danh sách năm sản xuất distinct của xe đang bán */
+	@Query("""
+			select distinct v.year from Vehicle v
+			where v.deleted = false and v.status = 'Available'
+			and v.year is not null
+			order by v.year desc
+			""")
+	List<Integer> findDistinctYears();
 
 }

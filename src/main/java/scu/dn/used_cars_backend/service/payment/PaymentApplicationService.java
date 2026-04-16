@@ -68,6 +68,9 @@ public class PaymentApplicationService {
 	private final DepositService depositService;
 	private final VehicleRepository vehicleRepository;
 	private final VehicleService vehicleService;
+	private final WebhookIpAllowlistService webhookIpAllowlistService;
+	private final scu.dn.used_cars_backend.repository.UserRepository userRepository;
+	private final scu.dn.used_cars_backend.service.EmailNotificationService emailNotificationService;
 
 	@Transactional
 	public PaymentUrlResponse createVnpay(long userId, PaymentCreateRequest req, String clientIp) {
@@ -392,6 +395,9 @@ public class PaymentApplicationService {
 
 	@Transactional
 	public Map<String, String> handleVnpayIpn(HttpServletRequest request) {
+		if (!webhookIpAllowlistService.isAllowed(request, WebhookIpAllowlistService.WebhookKind.VNPAY)) {
+			return Map.of("RspCode", "97", "Message", "Denied");
+		}
 		Map<String, String> m = flattenParams(request);
 		Optional<String> err = tryCompleteVnpay(m);
 		if (err.isPresent()) {
@@ -414,7 +420,10 @@ public class PaymentApplicationService {
 	}
 
 	@Transactional
-	public Map<String, Object> handleZaloCallback(String jsonBody) {
+	public Map<String, Object> handleZaloCallback(HttpServletRequest httpRequest, String jsonBody) {
+		if (!webhookIpAllowlistService.isAllowed(httpRequest, WebhookIpAllowlistService.WebhookKind.ZALOPAY)) {
+			return Map.of("return_code", -5, "return_message", "ip not allowed");
+		}
 		try {
 			JsonNode root = objectMapper.readTree(jsonBody);
 			String data = root.path("data").asText("");
@@ -714,6 +723,7 @@ public class PaymentApplicationService {
 			tx.setDescription("Dat coc xe thanh toan online #" + d.getId());
 			tx.setReferenceId(d.getId());
 			tx.setReferenceType("Deposit");
+			tx.setPaymentGateway(d.getPaymentGateway());
 			financialTransactionRepository.save(tx);
 		} else {
 			financialTransactionRepository.findByReferenceTypeAndReferenceId("Deposit", d.getId())
@@ -727,6 +737,10 @@ public class PaymentApplicationService {
 		v.setStatus(VehicleStatus.RESERVED.getDbValue());
 		vehicleRepository.save(v);
 		vehicleService.evictPublicVehicleCaches(v.getId());
+
+		// B5: Gui email thong bao dat coc thanh cong (async, khong anh huong luong chinh)
+		userRepository.findById(d.getCustomerId()).ifPresent(customer ->
+				emailNotificationService.sendDepositSuccessEmailAsync(d, v, customer));
 	}
 
 	private SalesOrder loadOrderAndAssertOwner(long orderId, long userId) {

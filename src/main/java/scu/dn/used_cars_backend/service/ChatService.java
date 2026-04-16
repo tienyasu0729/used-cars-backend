@@ -60,6 +60,10 @@ public class ChatService {
 		List<ChatParticipant> mine = chatParticipantRepository.findByUserId(currentUserId);
 		List<ChatConversationRowDto> rows = new ArrayList<>();
 		for (ChatParticipant row : mine) {
+			// Bỏ qua hội thoại đã ẩn (user đã "xóa")
+			if (row.getHiddenAt() != null) {
+				continue;
+			}
 			Long cid = row.getConversationId();
 			ChatConversation conv = chatConversationRepository.findById(cid).orElse(null);
 			if (conv == null) {
@@ -274,8 +278,12 @@ public class ChatService {
 		for (ChatParticipant p : chatParticipantRepository.findByConversationId(conversationId)) {
 			if (!p.getUserId().equals(senderUserId)) {
 				p.setUnreadCount(p.getUnreadCount() + 1);
-				chatParticipantRepository.save(p);
 			}
+			// Khi có tin nhắn mới → bỏ ẩn hội thoại (nếu user đã ẩn trước đó)
+			if (p.getHiddenAt() != null) {
+				p.setHiddenAt(null);
+			}
+			chatParticipantRepository.save(p);
 		}
 		return m.getId();
 	}
@@ -394,5 +402,21 @@ public class ChatService {
 		// persistMessage đã chạy trước khi thêm participant — người nhận chưa được +unread; 1 = tin chuyển giao chưa đọc.
 		np.setUnreadCount(1);
 		chatParticipantRepository.save(np);
+	}
+
+	/**
+	 * Ẩn hội thoại khỏi danh sách của user (soft delete).
+	 * Hội thoại sẽ hiện lại nếu đối phương gửi tin nhắn mới.
+	 */
+	@Transactional
+	public void hideConversation(long currentUserId, long conversationId) {
+		// B1: Kiểm tra user có trong hội thoại không
+		ChatParticipant mine = chatParticipantRepository.findByConversationIdAndUserId(conversationId, currentUserId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.CHAT_ACCESS_DENIED, "Bạn không tham gia cuộc trò chuyện này."));
+
+		// B2: Đánh dấu ẩn
+		mine.setHiddenAt(Instant.now());
+		mine.setUnreadCount(0);
+		chatParticipantRepository.save(mine);
 	}
 }

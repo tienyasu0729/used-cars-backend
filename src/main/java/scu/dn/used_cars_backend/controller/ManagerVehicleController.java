@@ -34,7 +34,14 @@ import scu.dn.used_cars_backend.dto.vehicle.VehicleListResponse;
 import scu.dn.used_cars_backend.dto.vehicle.VehicleUpdateRequest;
 import scu.dn.used_cars_backend.service.VehicleService;
 
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 @RestController
@@ -69,6 +76,22 @@ public class ManagerVehicleController {
 		return ResponseEntity.ok(ApiResponse.success(data));
 	}
 
+	/** Xuất Excel danh sách xe thuộc chi nhánh — tối đa 5000 dòng. Hỗ trợ filter theo status và keyword. */
+	@GetMapping(value = "/export", produces = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	public ResponseEntity<byte[]> export(
+			@RequestParam(required = false) String status,
+			@RequestParam(required = false) String keyword,
+			Authentication authentication) {
+		long userId = requireUserId(authentication);
+		boolean admin = isAdmin(authentication);
+		byte[] body = vehicleService.exportVehiclesExcel(userId, admin, status, keyword);
+		String day = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh")).format(DateTimeFormatter.BASIC_ISO_DATE);
+		return ResponseEntity.ok()
+				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"danh-sach-xe_" + day + ".xlsx\"")
+				.contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+				.body(body);
+	}
+
 	/** Chi tiết để sửa — 403 nếu không quản lý chi nhánh của xe. */
 	@GetMapping("/{id:\\d+}")
 	public ResponseEntity<ApiResponse<VehicleDetailDto>> detail(@PathVariable long id,
@@ -80,6 +103,7 @@ public class ManagerVehicleController {
 	}
 
 	@PostMapping
+	@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_VEHICLES_CREATE')")
 	public ResponseEntity<ApiResponse<VehicleDetailDto>> create(@Valid @RequestBody VehicleCreateRequest request,
 			Authentication authentication) {
 		long userId = requireUserId(authentication);
@@ -89,6 +113,7 @@ public class ManagerVehicleController {
 	}
 
 	@PutMapping("/{id}")
+	@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_VEHICLES_UPDATE')")
 	public ResponseEntity<ApiResponse<VehicleDetailDto>> update(@PathVariable long id,
 			@Valid @RequestBody VehicleUpdateRequest request, Authentication authentication) {
 		long userId = requireUserId(authentication);
@@ -98,6 +123,7 @@ public class ManagerVehicleController {
 	}
 
 	@DeleteMapping("/{id}")
+	@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_VEHICLES_DELETE')")
 	public ResponseEntity<ApiResponse<Void>> delete(@PathVariable long id, Authentication authentication) {
 		long userId = requireUserId(authentication);
 		boolean admin = isAdmin(authentication);
@@ -119,6 +145,7 @@ public class ManagerVehicleController {
 
 	/** Đổi trạng thái xe đơn lẻ (Available, Reserved, Sold, Hidden). */
 	@PatchMapping("/{id}/status")
+	@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_VEHICLES_UPDATE')")
 	public ResponseEntity<ApiResponse<VehicleDetailDto>> changeStatus(@PathVariable long id,
 			@Valid @RequestBody UpdateVehicleStatusRequest request, Authentication authentication) {
 		long userId = requireUserId(authentication);
@@ -130,6 +157,7 @@ public class ManagerVehicleController {
 
 	/** Đổi trạng thái xe hàng loạt — Fail-Fast nếu xe ngoài chi nhánh. */
 	@PatchMapping("/bulk-status")
+	@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_VEHICLES_UPDATE')")
 	public ResponseEntity<ApiResponse<Void>> bulkChangeStatus(@Valid @RequestBody BulkStatusRequest request,
 			Authentication authentication) {
 		long userId = requireUserId(authentication);
@@ -140,6 +168,7 @@ public class ManagerVehicleController {
 
 	/** Xóa mềm xe hàng loạt — Fail-Fast nếu xe ngoài chi nhánh. */
 	@DeleteMapping("/bulk-delete")
+	@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_VEHICLES_DELETE')")
 	public ResponseEntity<ApiResponse<Void>> bulkDelete(@Valid @RequestBody BulkDeleteRequest request,
 			Authentication authentication) {
 		long userId = requireUserId(authentication);

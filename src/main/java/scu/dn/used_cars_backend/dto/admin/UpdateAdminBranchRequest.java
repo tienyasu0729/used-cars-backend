@@ -1,5 +1,7 @@
 package scu.dn.used_cars_backend.dto.admin;
 
+import java.math.BigDecimal;
+
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
@@ -21,4 +23,8 @@ public class UpdateAdminBranchRequest {
 	@NotBlank(message = "Trạng thái không được để trống.")
 	@Size(max = 20, message = "Trạng thái không hợp lệ.")
 	private String status;
+
+	/** Tọa độ GPS (nullable — chỉ cập nhật khi gửi giá trị). */
+	private BigDecimal lat;
+	private BigDecimal lng;
 }

@@ -30,7 +30,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/admin/notifications")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_CMS_MANAGE')")
 public class AdminSystemAnnouncementController {
 
 	private final AdminSystemAnnouncementService adminSystemAnnouncementService;

@@ -52,6 +52,7 @@ public class ManagerStaffController {
 	}
 
 	@PostMapping
+	@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_USERS_CREATE')")
 	public ResponseEntity<ApiResponse<StaffListItemDto>> create(@Valid @RequestBody CreateStaffRequest request,
 			Authentication authentication) {
 		long userId = AuthenticationDetailsUtils.requireUserId(authentication);
@@ -61,6 +62,7 @@ public class ManagerStaffController {
 	}
 
 	@PutMapping("/{id}")
+	@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_USERS_UPDATE')")
 	public ResponseEntity<ApiResponse<StaffListItemDto>> update(@PathVariable long id,
 			@Valid @RequestBody UpdateStaffRequest request,
 			Authentication authentication) {
@@ -81,6 +83,7 @@ public class ManagerStaffController {
 	}
 
 	@DeleteMapping("/{id}")
+	@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_USERS_DELETE')")
 	public ResponseEntity<ApiResponse<Void>> delete(@PathVariable long id, Authentication authentication) {
 		long userId = AuthenticationDetailsUtils.requireUserId(authentication);
 		boolean admin = isAdmin(authentication);
@@ -90,7 +93,7 @@ public class ManagerStaffController {
 
 	@PostMapping("/{id}/restore")
 	public ResponseEntity<ApiResponse<StaffListItemDto>> restore(@PathVariable long id,
-			@RequestBody(required = false) RestoreStaffRequest request,
+			@Valid @RequestBody(required = false) RestoreStaffRequest request,
 			Authentication authentication) {
 		long userId = AuthenticationDetailsUtils.requireUserId(authentication);
 		boolean admin = isAdmin(authentication);

@@ -57,6 +57,8 @@ public class AdminBranchService {
 					.vehicleCount(v)
 					.staffCount(s)
 					.imageUrl(firstShowroomImageUrl(b.getShowroomImageUrlsJson()))
+					.lat(b.getLat())
+					.lng(b.getLng())
 					.build());
 		}
 		return out;
@@ -91,6 +93,8 @@ public class AdminBranchService {
 		b.setAddress(req.getAddress().trim());
 		b.setPhone(trimOrNull(req.getPhone()));
 		b.setStatus(st);
+		if (req.getLat() != null) b.setLat(req.getLat());
+		if (req.getLng() != null) b.setLng(req.getLng());
 		branchRepository.save(b);
 		return toDto(b);
 	}
@@ -117,6 +121,8 @@ public class AdminBranchService {
 				.vehicleCount(v)
 				.staffCount(s)
 				.imageUrl(firstShowroomImageUrl(b.getShowroomImageUrlsJson()))
+				.lat(b.getLat())
+				.lng(b.getLng())
 				.build();
 	}
 

@@ -11,12 +11,17 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import org.springframework.data.domain.Page;
+
 import scu.dn.used_cars_backend.common.api.ApiResponse;
 import scu.dn.used_cars_backend.common.exception.BusinessException;
 import scu.dn.used_cars_backend.common.exception.ErrorCode;
+import scu.dn.used_cars_backend.dto.vehicle.MaintenanceHistoryResponse;
+import scu.dn.used_cars_backend.dto.vehicle.SuggestionDto;
 import scu.dn.used_cars_backend.dto.vehicle.VehicleDetailDto;
 import scu.dn.used_cars_backend.dto.vehicle.VehicleListResponse;
 import scu.dn.used_cars_backend.security.AuthenticationDetailsUtils;
+import scu.dn.used_cars_backend.service.MaintenanceService;
 import scu.dn.used_cars_backend.service.VehicleService;
 
 import java.math.BigDecimal;
@@ -29,6 +34,17 @@ import java.util.List;
 public class VehicleController {
 
 	private final VehicleService vehicleService;
+	private final MaintenanceService maintenanceService;
+
+	/** Gợi ý tìm kiếm — trả danh sách gợi ý theo từ khoá người dùng nhập */
+	@GetMapping("/suggestions")
+	public ResponseEntity<ApiResponse<List<SuggestionDto>>> suggestions(
+			@RequestParam String q,
+			@RequestParam(defaultValue = "8") int limit) {
+		int safeLimit = Math.min(Math.max(limit, 1), 15);
+		List<SuggestionDto> data = vehicleService.getSuggestions(q, safeLimit);
+		return ResponseEntity.ok(ApiResponse.success(data));
+	}
 
 	/** So sánh 2–3 xe công khai — query {@code ids=1,2,3} */
 	@GetMapping("/compare")
@@ -78,6 +94,17 @@ public class VehicleController {
 		Integer categoryId = brand;
 		VehicleListResponse data = vehicleService.listPublic(categoryId, subcategoryId, minPrice, maxPrice, yearMin,
 				yearMax, transmission, branchId, page, size, sort, q);
+		return ResponseEntity.ok(ApiResponse.success(data));
+	}
+
+	/** Lịch sử bảo dưỡng công khai — không cần đăng nhập. */
+	@GetMapping("/{vehicleId:\\d+}/maintenance")
+	public ResponseEntity<ApiResponse<Page<MaintenanceHistoryResponse>>> publicMaintenance(
+			@PathVariable long vehicleId,
+			@RequestParam(defaultValue = "0") int page,
+			@RequestParam(defaultValue = "20") int size) {
+		Page<MaintenanceHistoryResponse> data = maintenanceService
+				.getPublicMaintenanceHistory(vehicleId, page, size);
 		return ResponseEntity.ok(ApiResponse.success(data));
 	}
 

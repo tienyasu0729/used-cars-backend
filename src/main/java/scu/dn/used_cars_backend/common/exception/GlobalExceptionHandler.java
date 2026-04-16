@@ -169,6 +169,7 @@ public class GlobalExceptionHandler {
 	private String defaultMessage(ErrorCode ec) {
 		return switch (ec) {
 			case UNAUTHORIZED -> "Yêu cầu đăng nhập.";
+			case RATE_LIMITED -> "Quá nhiều yêu cầu, vui lòng thử lại sau.";
 			case FORBIDDEN -> "Không có quyền truy cập.";
 			case INVALID_CREDENTIALS -> "Sai email hoặc mật khẩu.";
 			case INVALID_CURRENT_PASSWORD -> "Mật khẩu hiện tại không đúng.";
@@ -229,10 +230,12 @@ public class GlobalExceptionHandler {
 			case NOTIFICATION_NOT_FOUND -> "Không tìm thấy thông báo.";
 			case ANNOUNCEMENT_NOT_FOUND -> "Không tìm thấy thông báo hệ thống.";
 			case MAIL_NOT_CONFIGURED -> "Chưa cấu hình gửi email (SMTP).";
+			case INVALID_RESET_TOKEN -> "Token đặt lại mật khẩu không hợp lệ hoặc đã hết hạn.";
 			case CONSULTATION_NOT_FOUND -> "Không tìm thấy phiếu tư vấn.";
 			case CONSULTATION_ACCESS_DENIED -> "Không có quyền thao tác phiếu tư vấn này.";
 			case CHAT_NOT_FOUND -> "Không tìm thấy hội thoại hoặc tin nhắn chat.";
 			case CHAT_ACCESS_DENIED -> "Không có quyền truy cập cuộc trò chuyện này.";
+			case GOOGLE_AUTH_FAILED -> "Xác thực Google không thành công.";
 		};
 	}
 }

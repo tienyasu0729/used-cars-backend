@@ -19,6 +19,7 @@ import scu.dn.used_cars_backend.security.StompJwtChannelInterceptor;
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
 	private final StompJwtChannelInterceptor stompJwtChannelInterceptor;
+	private final AppCorsConfiguration appCorsConfiguration;
 
 	@Override
 	public void configureMessageBroker(MessageBrokerRegistry config) {
@@ -29,7 +30,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
 	@Override
 	public void registerStompEndpoints(StompEndpointRegistry registry) {
-		registry.addEndpoint("/ws").setAllowedOriginPatterns("*");
+		registry.addEndpoint("/ws").setAllowedOriginPatterns(appCorsConfiguration.websocketAllowedOriginPatterns());
 	}
 
 	@Override

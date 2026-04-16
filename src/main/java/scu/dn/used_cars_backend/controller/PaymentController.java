@@ -162,8 +162,8 @@ public class PaymentController {
 	}
 
 	@PostMapping(value = "/zalopay/callback", produces = MediaType.APPLICATION_JSON_VALUE)
-	public Map<String, Object> zaloCallback(@RequestBody String body) {
-		return paymentApplicationService.handleZaloCallback(body);
+	public Map<String, Object> zaloCallback(HttpServletRequest request, @RequestBody String body) {
+		return paymentApplicationService.handleZaloCallback(request, body);
 	}
 
 	private static boolean isAdmin(Authentication authentication) {

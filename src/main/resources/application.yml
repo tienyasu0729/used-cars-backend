@@ -54,17 +54,34 @@ spring:
           auth: true
           starttls:
             enable: true
+            required: true
 
 server:
   port: ${SERVER_PORT:8080}
 
 app:
+  # Bảo mật bổ sung: CORS (không dùng *), rate limit đăng nhập/đăng ký, whitelist IP webhook (rỗng = không chặn).
+  security:
+    cors:
+      # Ví dụ prod: [ "https://banxe.example.com", "https://www.banxe.example.com" ]
+      # Để trống → mặc định http://localhost:*, 127.0.0.1, [::1] (dev)
+      allowed-origin-patterns: []
+    rate-limit:
+      enabled: true
+      requests-per-minute: 60
+    webhook:
+      vnpay-allow-cidrs: []
+      zalopay-allow-cidrs: []
+
   mail:
     from: ${MAIL_FROM:}
 
   jwt:
     secret: ${JWT_SECRET:}
     expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+
+  google:
+    client-id: ${GOOGLE_CLIENT_ID:}
 
   cloudinary:
     # Upload ký server-side; đủ 3 giá trị mới bật — xem application-local.yml hoặc CLOUDINARY_*.

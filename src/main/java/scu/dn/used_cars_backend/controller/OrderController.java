@@ -39,7 +39,7 @@ public class OrderController {
 	private final PaymentApplicationService paymentApplicationService;
 
 	@PostMapping
-	@PreAuthorize("hasAnyRole('ADMIN','BRANCHMANAGER','SALESSTAFF')")
+	@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_ORDERS_CREATE')")
 	public ResponseEntity<ApiResponse<CreateOrderResponse>> create(@Valid @RequestBody CreateOrderRequest body,
 			Authentication auth) {
 		long uid = AuthenticationDetailsUtils.requireUserId(auth);
@@ -69,7 +69,7 @@ public class OrderController {
 	}
 
 	@PatchMapping("/{id}/status")
-	@PreAuthorize("hasAnyRole('ADMIN','BRANCHMANAGER','SALESSTAFF')")
+	@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_ORDERS_UPDATE')")
 	public ResponseEntity<ApiResponse<Void>> patchStatus(@PathVariable long id, Authentication auth) {
 		long uid = AuthenticationDetailsUtils.requireUserId(auth);
 		String role = JwtRoleNames.primaryRole(auth);
@@ -79,7 +79,7 @@ public class OrderController {
 
 	@PatchMapping("/{id}/cancel")
 	public ResponseEntity<ApiResponse<Void>> cancel(@PathVariable long id,
-			@RequestBody(required = false) CancelOrderRequest body, Authentication auth) {
+			@Valid @RequestBody(required = false) CancelOrderRequest body, Authentication auth) {
 		long uid = AuthenticationDetailsUtils.requireUserId(auth);
 		String role = JwtRoleNames.primaryRole(auth);
 		orderService.cancel(uid, role, id, body);
@@ -87,7 +87,7 @@ public class OrderController {
 	}
 
 	@PatchMapping("/{id}/confirm-sold")
-	@PreAuthorize("hasAnyRole('ADMIN','BRANCHMANAGER','SALESSTAFF')")
+	@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_ORDERS_UPDATE')")
 	public ResponseEntity<ApiResponse<Void>> confirmSold(@PathVariable long id, Authentication auth) {
 		long uid = AuthenticationDetailsUtils.requireUserId(auth);
 		String role = JwtRoleNames.primaryRole(auth);
@@ -96,7 +96,7 @@ public class OrderController {
 	}
 
 	@PostMapping("/{id}/payments")
-	@PreAuthorize("hasAnyRole('ADMIN','BRANCHMANAGER','SALESSTAFF')")
+	@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_ORDERS_UPDATE')")
 	public ResponseEntity<ApiResponse<Void>> addPayment(@PathVariable long id,
 			@Valid @RequestBody AddManualPaymentRequest body, Authentication auth) {
 		long uid = AuthenticationDetailsUtils.requireUserId(auth);

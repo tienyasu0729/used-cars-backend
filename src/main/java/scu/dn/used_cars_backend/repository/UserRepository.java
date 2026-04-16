@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import scu.dn.used_cars_backend.entity.User;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -27,6 +28,9 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 	boolean existsByIdAndDeletedFalse(Long id);
 
 	Optional<User> findByIdAndDeletedFalse(Long id);
+
+	@Query("select u from User u where u.id in :ids and u.deleted = false")
+	List<User> findAllByIdInAndDeletedFalse(@Param("ids") Collection<Long> ids);
 
 	@EntityGraph(attributePaths = { "userRoles", "userRoles.role" })
 	@Query("select u from User u where u.id = :id and u.deleted = false")

@@ -20,8 +20,10 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import scu.dn.used_cars_backend.common.exception.ErrorCode;
 import scu.dn.used_cars_backend.entity.User;
 import scu.dn.used_cars_backend.repository.UserRepository;
+import scu.dn.used_cars_backend.service.RolePermissionCacheService;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -29,9 +31,12 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
+	// Phải khớp SecurityConfig: các POST auth công khai (không JWT).
 	private static final RequestMatcher PUBLIC_AUTH = new OrRequestMatcher(
 			new AntPathRequestMatcher("/api/v1/auth/login", "POST"),
-			new AntPathRequestMatcher("/api/v1/auth/register", "POST"));
+			new AntPathRequestMatcher("/api/v1/auth/register", "POST"),
+			new AntPathRequestMatcher("/api/v1/auth/forgot-password", "POST"),
+			new AntPathRequestMatcher("/api/v1/auth/reset-password", "POST"));
 
 	private static final RequestMatcher PUBLIC_READ_CATALOG_AND_VEHICLES = new OrRequestMatcher(
 			new AntPathRequestMatcher("/api/v1/catalog/**", "GET"),
@@ -40,6 +45,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 			new AntPathRequestMatcher("/api/v1/branches/*/team", "GET"),
 			new AntPathRequestMatcher("/api/v1/vehicles", "GET"),
 			new AntPathRequestMatcher("/api/v1/vehicles/*", "GET"),
+			new AntPathRequestMatcher("/api/v1/vehicles/*/maintenance", "GET"),
 			new AntPathRequestMatcher("/api/v1/vehicles/*/view", "POST"),
 			new AntPathRequestMatcher("/api/v1/vehicles/recently-viewed", "GET"),
 			new AntPathRequestMatcher("/api/v1/bookings/available-slots", "GET"),
@@ -57,6 +63,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 	private final JwtService jwtService;
 	private final UserRepository userRepository;
 	private final HttpErrorResponseWriter errorWriter;
+	private final RolePermissionCacheService rolePermissionCacheService;
 
 	@Override
 	protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
@@ -127,9 +134,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 						"Vui lòng đặt mật khẩu mới trước khi tiếp tục.", request.getRequestURI());
 				return false;
 			}
+			// B1: authority chính — ROLE_<tên role> (VD: ROLE_ADMIN, ROLE_BRANCHMANAGER)
 			String authority = "ROLE_" + roleName.toUpperCase().replace(' ', '_');
+
+			// B2: load permission từ DB (có cache) — VD: PERMISSION_VEHICLES_CREATE
+			List<SimpleGrantedAuthority> authorities = new ArrayList<>();
+			authorities.add(new SimpleGrantedAuthority(authority));
+			authorities.addAll(rolePermissionCacheService.getPermissionAuthorities(roleName));
+
 			UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(user.getEmail(), null,
-					List.of(new SimpleGrantedAuthority(authority)));
+					authorities);
 			auth.setDetails(userId);
 			SecurityContextHolder.getContext().setAuthentication(auth);
 			return true;

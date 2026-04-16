@@ -387,6 +387,8 @@ public class BranchService {
 				.workingDays(workingDays)
 				.dailySchedules(dailySchedules)
 				.showroomImageUrls(readShowroomImageUrls(branch.getShowroomImageUrlsJson()))
+				.lat(branch.getLat())
+				.lng(branch.getLng())
 				.build();
 	}
 
@@ -417,6 +419,9 @@ public class BranchService {
 		branch.setName(request.getName().trim());
 		branch.setAddress(request.getAddress().trim());
 		branch.setPhone(request.getPhone() != null && !request.getPhone().isBlank() ? request.getPhone().trim() : null);
+		// Cập nhật tọa độ GPS nếu client gửi lên
+		if (request.getLat() != null) branch.setLat(request.getLat());
+		if (request.getLng() != null) branch.setLng(request.getLng());
 		if (request.getShowroomImageUrls() != null) {
 			writeShowroomImageUrls(branch, request.getShowroomImageUrls());
 		}

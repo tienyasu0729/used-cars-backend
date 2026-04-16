@@ -32,7 +32,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/admin/catalog")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_CMS_MANAGE')")
 public class AdminCatalogController {
 
 	private final AdminCatalogService adminCatalogService;

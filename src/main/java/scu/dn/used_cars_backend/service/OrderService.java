@@ -111,6 +111,7 @@ public class OrderService {
 		tx.setDescription("Don hang " + num);
 		tx.setReferenceId(o.getId());
 		tx.setReferenceType("Order");
+		tx.setPaymentGateway(req.getPaymentMethod() != null ? req.getPaymentMethod() : "cash");
 		financialTransactionRepository.save(tx);
 		return CreateOrderResponse.builder().id(o.getId()).orderNumber(num).status(o.getStatus()).build();
 	}

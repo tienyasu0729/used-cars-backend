@@ -98,7 +98,7 @@ public class BookingController {
 	@PatchMapping("/{id}/confirm")
 	@PreAuthorize("hasAnyRole('ADMIN','BRANCHMANAGER','SALESSTAFF')")
 	public ResponseEntity<ApiResponse<BookingResponse>> confirm(@PathVariable long id,
-			@RequestBody(required = false) ConfirmBookingRequest body,
+			@Valid @RequestBody(required = false) ConfirmBookingRequest body,
 			Authentication authentication) {
 		long userId = requireUserId(authentication);
 		return ResponseEntity.ok(ApiResponse.success(bookingService.confirmBooking(id, userId, body)));

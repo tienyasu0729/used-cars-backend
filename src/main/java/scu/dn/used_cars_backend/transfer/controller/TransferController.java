@@ -39,7 +39,7 @@ public class TransferController {
 	private final TransferService transferService;
 
 	@PostMapping
-	@PreAuthorize("hasAnyRole('BRANCHMANAGER','SALESSTAFF')")
+	@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_TRANSFERS_CREATE')")
 	public ResponseEntity<ApiResponse<TransferResponseDto>> create(@Valid @RequestBody CreateTransferRequestDto body,
 			Authentication authentication) {
 		long userId = requireUserId(authentication);
@@ -48,7 +48,7 @@ public class TransferController {
 	}
 
 	@GetMapping
-	@PreAuthorize("hasAnyRole('ADMIN','BRANCHMANAGER','SALESSTAFF')")
+	@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_TRANSFERS_VIEW')")
 	public ResponseEntity<ApiResponse<List<TransferResponseDto>>> list(
 			@RequestParam(required = false) String status,
 			@PageableDefault(size = 10) Pageable pageable,
@@ -65,7 +65,7 @@ public class TransferController {
 	}
 
 	@GetMapping("/{id}")
-	@PreAuthorize("hasAnyRole('ADMIN','BRANCHMANAGER','SALESSTAFF')")
+	@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_TRANSFERS_VIEW')")
 	public ResponseEntity<ApiResponse<TransferResponseDto>> getOne(@PathVariable long id,
 			Authentication authentication) {
 		long userId = requireUserId(authentication);
@@ -73,7 +73,7 @@ public class TransferController {
 	}
 
 	@PostMapping("/{id}/approve")
-	@PreAuthorize("hasAnyRole('BRANCHMANAGER','SALESSTAFF')")
+	@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_TRANSFERS_APPROVE')")
 	public ResponseEntity<ApiResponse<TransferResponseDto>> approve(@PathVariable long id,
 			@Valid @RequestBody TransferActionRequestDto body,
 			Authentication authentication) {
@@ -82,7 +82,7 @@ public class TransferController {
 	}
 
 	@PostMapping("/{id}/reject")
-	@PreAuthorize("hasAnyRole('BRANCHMANAGER','SALESSTAFF')")
+	@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_TRANSFERS_APPROVE')")
 	public ResponseEntity<ApiResponse<TransferResponseDto>> reject(@PathVariable long id,
 			@Valid @RequestBody TransferActionRequestDto body,
 			Authentication authentication) {
@@ -93,7 +93,7 @@ public class TransferController {
 	@PatchMapping("/{id}/complete")
 	@PreAuthorize("hasRole('BRANCHMANAGER')")
 	public ResponseEntity<ApiResponse<TransferResponseDto>> complete(@PathVariable long id,
-			@RequestBody(required = false) CompleteTransferRequestDto body,
+			@Valid @RequestBody(required = false) CompleteTransferRequestDto body,
 			Authentication authentication) {
 		long userId = requireUserId(authentication);
 		CompleteTransferRequestDto b = body != null ? body : new CompleteTransferRequestDto();

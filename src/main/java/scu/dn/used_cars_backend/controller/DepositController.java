@@ -68,7 +68,7 @@ public class DepositController {
 
 	@PatchMapping("/{id}/cancel")
 	public ResponseEntity<ApiResponse<Void>> cancel(@PathVariable long id,
-			@RequestBody(required = false) CancelDepositRequest body, Authentication auth) {
+			@Valid @RequestBody(required = false) CancelDepositRequest body, Authentication auth) {
 		long uid = AuthenticationDetailsUtils.requireUserId(auth);
 		String role = JwtRoleNames.primaryRole(auth);
 		depositService.cancel(uid, role, id, body);

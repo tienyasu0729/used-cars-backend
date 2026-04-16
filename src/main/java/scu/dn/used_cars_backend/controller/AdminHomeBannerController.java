@@ -26,7 +26,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/admin/home-banners")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_CMS_MANAGE')")
 public class AdminHomeBannerController {
 
 	private final HomePageBannerService homePageBannerService;

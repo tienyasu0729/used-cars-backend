@@ -22,7 +22,9 @@ public class CacheConfig {
 				new CaffeineCache("vehicleList",
 						Caffeine.newBuilder().expireAfterWrite(5, TimeUnit.MINUTES).maximumSize(2000).build()),
 				new CaffeineCache("vehicleDetail",
-						Caffeine.newBuilder().expireAfterWrite(30, TimeUnit.MINUTES).maximumSize(10000).build())));
+						Caffeine.newBuilder().expireAfterWrite(30, TimeUnit.MINUTES).maximumSize(10000).build()),
+				new CaffeineCache("rolePermissions",
+						Caffeine.newBuilder().expireAfterWrite(5, TimeUnit.MINUTES).maximumSize(100).build())));
 		mgr.initializeCaches();
 		return mgr;
 	}

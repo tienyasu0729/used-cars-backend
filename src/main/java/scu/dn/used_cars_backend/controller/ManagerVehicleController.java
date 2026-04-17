@@ -162,7 +162,7 @@ public class ManagerVehicleController {
 			Authentication authentication) {
 		long userId = requireUserId(authentication);
 		boolean admin = isAdmin(authentication);
-		vehicleService.bulkChangeStatus(request.getVehicleIds(), request.getStatus(), userId, admin);
+		vehicleService.bulkChangeStatus(request.getVehicleIds(), request.getStatus(), request.getNote(), userId, admin);
 		return ResponseEntity.ok(ApiResponse.<Void>success(null));
 	}
 

@@ -89,6 +89,11 @@ app:
     api-key: ${CLOUDINARY_API_KEY:}
     api-secret: ${CLOUDINARY_API_SECRET:}
 
+  order:
+    # Thoi han (gio) cho don Pending khong coc (depositAmount = 0) truoc khi scheduler tu huy.
+    # Giu xe "ao" qua lau se chan giao dich thuc te -> phai co timeout.
+    pending-timeout-hours: ${ORDER_PENDING_TIMEOUT_HOURS:24}
+
   payment:
     frontend-base-url: ${APP_FRONTEND_BASE_URL:}
     vnpay:

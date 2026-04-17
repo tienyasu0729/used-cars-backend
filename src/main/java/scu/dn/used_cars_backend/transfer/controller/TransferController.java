@@ -72,8 +72,11 @@ public class TransferController {
 		return ResponseEntity.ok(ApiResponse.success(transferService.getById(id, userId, isAdmin(authentication))));
 	}
 
+	// Chỉ BranchManager của chi nhánh nguồn mới được phê duyệt.
+	// Admin KHÔNG được duyệt (service sẽ chặn vì admin không thuộc chi nhánh nào)
+	// → Controller cũng chặn sớm để thống nhất quyền và trả 403 đúng ngữ cảnh.
 	@PostMapping("/{id}/approve")
-	@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_TRANSFERS_APPROVE')")
+	@PreAuthorize("hasAuthority('PERMISSION_TRANSFERS_APPROVE')")
 	public ResponseEntity<ApiResponse<TransferResponseDto>> approve(@PathVariable long id,
 			@Valid @RequestBody TransferActionRequestDto body,
 			Authentication authentication) {
@@ -81,8 +84,9 @@ public class TransferController {
 		return ResponseEntity.ok(ApiResponse.success(transferService.approve(id, body, userId)));
 	}
 
+	// Tương tự approve: chỉ BranchManager chi nhánh nguồn được từ chối.
 	@PostMapping("/{id}/reject")
-	@PreAuthorize("hasRole('ADMIN') or hasAuthority('PERMISSION_TRANSFERS_APPROVE')")
+	@PreAuthorize("hasAuthority('PERMISSION_TRANSFERS_APPROVE')")
 	public ResponseEntity<ApiResponse<TransferResponseDto>> reject(@PathVariable long id,
 			@Valid @RequestBody TransferActionRequestDto body,
 			Authentication authentication) {

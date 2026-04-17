@@ -6,6 +6,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import scu.dn.used_cars_backend.audit.AuditLogWriter;
 import scu.dn.used_cars_backend.common.exception.BusinessException;
 import scu.dn.used_cars_backend.common.exception.ErrorCode;
 import scu.dn.used_cars_backend.dto.sales.AddManualPaymentRequest;
@@ -56,28 +57,68 @@ public class OrderService {
 	private final InAppNotificationService inAppNotificationService;
 	private final EmailNotificationService emailNotificationService;
 	private final scu.dn.used_cars_backend.service.payment.PaymentApplicationService paymentApplicationService;
+	private final AuditLogWriter auditLogWriter;
 
 	@Transactional
 	public CreateOrderResponse create(long actorUserId, String jwtRole, CreateOrderRequest req) {
+		// B1: lock xe (FOR UPDATE) + check ton tai + check quyen chi nhanh
 		Vehicle v = vehicleRepository.findByIdAndDeletedFalseForUpdate(req.getVehicleId())
 				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
 		assertStaffOrAdminOnVehicle(actorUserId, jwtRole, v);
+
+		// B2: check trang thai xe hop le (chi Available hoac Reserved moi tao duoc don)
 		String vst = v.getStatus();
 		if (!VehicleStatus.AVAILABLE.getDbValue().equals(vst) && !VehicleStatus.RESERVED.getDbValue().equals(vst)) {
 			throw new BusinessException(ErrorCode.VEHICLE_NOT_AVAILABLE, "Xe không đủ điều kiện tạo đơn.");
 		}
+
+		// B3: CHAN "1 xe - 1 order active" (Rule 3)
+		// Neu xe da co don Pending/Processing -> reject, khong cho tao don moi
+		long activeOrderCount = salesOrderRepository.countByVehicleIdAndStatusIn(
+				v.getId(), List.of("Pending", "Processing"));
+		if (activeOrderCount > 0) {
+			throw new BusinessException(ErrorCode.VEHICLE_HAS_ACTIVE_ORDER,
+					"Xe đã có đơn hàng đang xử lý, không thể tạo thêm đơn.");
+		}
+
+		// B4: CHONG BAN SAI CHU (Rule 2 - deposit ownership)
+		// Neu xe dang co coc active cua khach nao -> chi khach do moi duoc mua
+		List<Deposit> activeDeposits = depositRepository.findByVehicleIdAndStatusIn(
+				v.getId(), List.of("Confirmed", "AwaitingPayment", "Pending"));
+		if (!activeDeposits.isEmpty()) {
+			Deposit owner = activeDeposits.get(0);
+			if (owner.getCustomerId() != req.getCustomerId()) {
+				throw new BusinessException(ErrorCode.DEPOSIT_OWNER_MISMATCH,
+						"Xe đang được khách khác đặt cọc, không thể bán cho khách này.");
+			}
+			// Xe da co coc cua dung khach -> request BUOC phai di kem depositId
+			if (req.getDepositId() == null) {
+				throw new BusinessException(ErrorCode.DEPOSIT_REQUIRED,
+						"Xe đã có phiếu cọc — vui lòng chọn phiếu cọc tương ứng khi tạo đơn.");
+			}
+		}
+
+		// B5: check khach hang ton tai
 		userRepository.findActiveByIdWithRoles(req.getCustomerId())
 				.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "Không tìm thấy khách hàng."));
+
+		// B6: neu co depositId -> lock coc va validate ky
 		BigDecimal depAmt = BigDecimal.ZERO;
 		Deposit dep = null;
 		if (req.getDepositId() != null) {
-			dep = depositRepository.findById(req.getDepositId())
+			// Lock FOR UPDATE de tranh race condition (2 luong cung convert 1 coc)
+			dep = depositRepository.findByIdForUpdate(req.getDepositId())
 					.orElseThrow(() -> new BusinessException(ErrorCode.DEPOSIT_NOT_FOUND, "Không tìm thấy cọc."));
 			if (dep.getCustomerId() != req.getCustomerId() || !dep.getVehicleId().equals(req.getVehicleId())) {
 				throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Cọc không khớp khách hoặc xe.");
 			}
 			if (!"Confirmed".equals(dep.getStatus())) {
 				throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Cọc phải đã xác nhận.");
+			}
+			// Coc da duoc dung cho don khac -> reject (double-convert protection)
+			if (dep.getOrderId() != null) {
+				throw new BusinessException(ErrorCode.DEPOSIT_ALREADY_CONVERTED,
+						"Cọc đã được dùng cho đơn khác, không thể tái sử dụng.");
 			}
 			depAmt = dep.getAmount();
 		}
@@ -105,16 +146,9 @@ public class OrderService {
 		v.setStatus(VehicleStatus.RESERVED.getDbValue());
 		vehicleRepository.save(v);
 		vehicleService.evictPublicVehicleCaches(v.getId());
-		FinancialTransaction tx = new FinancialTransaction();
-		tx.setUserId(req.getCustomerId());
-		tx.setType("Purchase");
-		tx.setAmount(total);
-		tx.setStatus("Pending");
-		tx.setDescription("Don hang " + num);
-		tx.setReferenceId(o.getId());
-		tx.setReferenceType("Order");
-		tx.setPaymentGateway(req.getPaymentMethod() != null ? req.getPaymentMethod() : "cash");
-		financialTransactionRepository.save(tx);
+		// Khong insert FinancialTransaction o day nua (model event-based):
+		// Transaction se duoc tao khi tien thuc su vao qua OrderPayment (cash/VNPay/ZaloPay).
+		// Tranh double-count voi row Deposit da co.
 
 		// Gui email xac nhan don hang cho khach
 		User customer = userRepository.findById(req.getCustomerId()).orElse(null);
@@ -218,6 +252,10 @@ public class OrderService {
 			boolean refunded = paymentApplicationService.refundDeposit(d);
 			if (refunded) {
 				d.setStatus("Refunded");
+				// Ghi row Refund vao Transactions khi hoan coc thanh cong
+				insertRefundTransaction(d.getCustomerId(), "Deposit", d.getId(),
+						d.getAmount(), d.getPaymentGateway(),
+						"Hoan coc #" + d.getId() + " khi huy don #" + o.getOrderNumber());
 			} else {
 				d.setStatus("RefundFailed");
 			}
@@ -288,6 +326,47 @@ public class OrderService {
 		}
 		o.setRemainingAmount(o.getRemainingAmount().subtract(req.getAmount()));
 		salesOrderRepository.save(o);
+
+		// Model event-based: moi lan thu tien tao 1 row Transactions rieng (ref = OrderPayment).
+		FinancialTransaction tx = new FinancialTransaction();
+		tx.setUserId(o.getCustomerId());
+		tx.setType("Purchase");
+		tx.setAmount(req.getAmount());
+		tx.setStatus("Completed");
+		tx.setDescription("Thanh toan don hang #" + o.getOrderNumber() + " (thu cong)");
+		tx.setReferenceId(p.getId());
+		tx.setReferenceType("OrderPayment");
+		tx.setPaymentGateway(normalizePaymentGateway(pm));
+		financialTransactionRepository.save(tx);
+	}
+
+	// Chuan hoa payment_gateway de khop CK_Trans_PaymentGateway (vnpay|zalopay|cash).
+	// Bat ky gia tri nao khong phai 'vnpay'/'zalopay' (sau lowercase) se map thanh 'cash'.
+	private String normalizePaymentGateway(String paymentMethod) {
+		if (paymentMethod == null) {
+			return "cash";
+		}
+		String v = paymentMethod.trim().toLowerCase();
+		if ("vnpay".equals(v) || "zalopay".equals(v)) {
+			return v;
+		}
+		return "cash";
+	}
+
+	// Tao 1 row Transactions type='Refund' khi hoan tien thanh cong.
+	// referenceType = 'Deposit' hoac 'OrderPayment', referenceId = id cua entity duoc hoan.
+	private void insertRefundTransaction(Long userId, String referenceType, Long referenceId,
+			java.math.BigDecimal amount, String gateway, String description) {
+		FinancialTransaction tx = new FinancialTransaction();
+		tx.setUserId(userId);
+		tx.setType("Refund");
+		tx.setAmount(amount);
+		tx.setStatus("Completed");
+		tx.setDescription(description);
+		tx.setReferenceId(referenceId);
+		tx.setReferenceType(referenceType);
+		tx.setPaymentGateway(normalizePaymentGateway(gateway));
+		financialTransactionRepository.save(tx);
 	}
 
 	private String nextOrderNumber() {
@@ -419,5 +498,56 @@ public class OrderService {
 
 	private static String blankToNull(String s) {
 		return s == null || s.isBlank() ? null : s.trim();
+	}
+
+	// ====== SCHEDULER SUPPORT: auto-timeout don Pending khong coc ======
+
+	// Tra ve danh sach id cua don Pending (depositAmount = 0) tao truoc cutoff.
+	// Dung cho OrderTimeoutScheduler - giu ham ben service de tach boundary transaction.
+	@Transactional(readOnly = true)
+	public List<Long> findPendingDirectOrderIdsCreatedBefore(Instant cutoff) {
+		return salesOrderRepository.findPendingDirectOrdersCreatedBefore(cutoff)
+				.stream().map(SalesOrder::getId).toList();
+	}
+
+	// Tu dong huy 1 don Pending khong coc da qua han:
+	// B1: lock xe FOR UPDATE
+	// B2: kiem tra lai trang thai don (phong race voi cancel tay)
+	// B3: chuyen don -> Cancelled, xe Reserved -> Available, FT -> Failed
+	// B4: ghi audit log
+	@Transactional
+	public void autoCancelTimedOutDirectOrder(long orderId) {
+		SalesOrder o = salesOrderRepository.findByIdWithGraph(orderId)
+				.orElse(null);
+		if (o == null || !"Pending".equals(o.getStatus())) {
+			return; // da xu ly boi luong khac
+		}
+		// Lock xe truoc khi thay doi
+		Vehicle v = vehicleRepository.findByIdForUpdate(o.getVehicle().getId())
+				.orElse(null);
+		if (v == null) {
+			return;
+		}
+		o.setStatus("Cancelled");
+		String note = "[AUTO-TIMEOUT] Don Pending khong coc qua han tu dong huy.";
+		o.setNotes(o.getNotes() != null ? o.getNotes() + " | " + note : note);
+		salesOrderRepository.save(o);
+
+		if (VehicleStatus.RESERVED.getDbValue().equals(v.getStatus())) {
+			v.setStatus(VehicleStatus.AVAILABLE.getDbValue());
+			vehicleRepository.save(v);
+			vehicleService.evictPublicVehicleCaches(v.getId());
+		}
+
+		financialTransactionRepository.findByReferenceTypeAndReferenceId("Order", orderId).ifPresent(tx -> {
+			tx.setStatus("Failed");
+			financialTransactionRepository.save(tx);
+		});
+
+		// Ghi audit log de trace (module="orders", action gan voi REST style)
+		auditLogWriter.persist(null, "system", "orders",
+				"AUTO_TIMEOUT_CANCEL /api/v1/orders/" + orderId,
+				"Auto cancel don Pending khong coc qua han (orderNumber=" + o.getOrderNumber() + ")",
+				null);
 	}
 }

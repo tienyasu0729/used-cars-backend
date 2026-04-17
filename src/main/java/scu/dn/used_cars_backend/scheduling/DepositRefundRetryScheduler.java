@@ -10,7 +10,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import lombok.RequiredArgsConstructor;
 import scu.dn.used_cars_backend.entity.Deposit;
+import scu.dn.used_cars_backend.entity.FinancialTransaction;
 import scu.dn.used_cars_backend.repository.DepositRepository;
+import scu.dn.used_cars_backend.repository.FinancialTransactionRepository;
 import scu.dn.used_cars_backend.service.payment.PaymentApplicationService;
 
 // Scheduler tu dong retry hoan tien coc cho cac deposit dang o trang thai RefundPending hoac RefundFailed.
@@ -28,6 +30,7 @@ public class DepositRefundRetryScheduler {
 	private static final String NO_RETRY_TAG = "[refund-no-retry]";
 
 	private final DepositRepository depositRepository;
+	private final FinancialTransactionRepository financialTransactionRepository;
 	private final PaymentApplicationService paymentApplicationService;
 
 	// Chay moi 5 phut, bat dau sau 30 giay khi server khoi dong
@@ -72,6 +75,8 @@ public class DepositRefundRetryScheduler {
 		// B3: Cap nhat trang thai
 		if (success) {
 			d.setStatus("Refunded");
+			// Ghi row Refund vao Transactions
+			insertRefundTransaction(d);
 			log.info("Retry refund deposit {} thanh cong (lan thu {}).", d.getId(), retryCount + 1);
 		} else {
 			d.setStatus("RefundFailed");
@@ -110,5 +115,22 @@ public class DepositRefundRetryScheduler {
 			return tag;
 		}
 		return cleaned + " | " + tag;
+	}
+
+	private void insertRefundTransaction(Deposit d) {
+		String gw = d.getPaymentGateway() != null ? d.getPaymentGateway().trim().toLowerCase() : "cash";
+		if (!"vnpay".equals(gw) && !"zalopay".equals(gw)) {
+			gw = "cash";
+		}
+		FinancialTransaction tx = new FinancialTransaction();
+		tx.setUserId(d.getCustomerId());
+		tx.setType("Refund");
+		tx.setAmount(d.getAmount());
+		tx.setStatus("Completed");
+		tx.setDescription("Retry refund coc #" + d.getId());
+		tx.setReferenceId(d.getId());
+		tx.setReferenceType("Deposit");
+		tx.setPaymentGateway(gw);
+		financialTransactionRepository.save(tx);
 	}
 }

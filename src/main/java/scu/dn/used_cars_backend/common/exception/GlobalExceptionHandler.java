@@ -224,6 +224,11 @@ public class GlobalExceptionHandler {
 			case ORDER_INVALID_STATUS_TRANSITION -> "Chuyển trạng thái đơn hàng không hợp lệ.";
 			case ORDER_CANNOT_CANCEL -> "Không thể hủy đơn hàng này.";
 			case ORDER_ACCESS_DENIED -> "Không có quyền truy cập đơn hàng này.";
+			case VEHICLE_HAS_ACTIVE_ORDER -> "Xe đã có đơn hàng đang xử lý, không thể tạo thêm.";
+			case DEPOSIT_OWNER_MISMATCH -> "Xe đang được khách khác đặt cọc, không thể bán cho khách này.";
+			case DEPOSIT_REQUIRED -> "Xe đã có phiếu cọc — vui lòng chọn phiếu cọc tương ứng khi tạo đơn.";
+			case DEPOSIT_ALREADY_CONVERTED -> "Phiếu cọc đã được dùng cho đơn khác.";
+			case INVALID_VEHICLE_STATE_TRANSITION -> "Chuyển trạng thái xe không hợp lệ.";
 			case PAYMENT_EXCEEDS_REMAINING -> "Số tiền thanh toán vượt số còn lại.";
 			case PAYMENT_FORBIDDEN -> "Không có quyền thanh toán đơn này.";
 			case PAYMENT_AMOUNT_MISMATCH -> "Số tiền không khớp tiền cọc hoặc số còn lại.";

@@ -305,6 +305,17 @@ public class PaymentApplicationService {
 			p.setStatus("Refunded");
 			p.setVnpLastRefundRequestId(reqId);
 			orderPaymentRepository.save(p);
+			// Ghi row Refund vao Transactions khi hoan tien VNPay OrderPayment thanh cong
+			FinancialTransaction refTx = new FinancialTransaction();
+			refTx.setUserId(p.getOrder().getCustomerId());
+			refTx.setType("Refund");
+			refTx.setAmount(p.getAmount());
+			refTx.setStatus("Completed");
+			refTx.setDescription("Hoan tien VNPay OrderPayment #" + p.getId());
+			refTx.setReferenceId(p.getId());
+			refTx.setReferenceType("OrderPayment");
+			refTx.setPaymentGateway("vnpay");
+			financialTransactionRepository.save(refTx);
 		} else if ("94".equals(rc)) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
 					"VNPay: da gui yeu cau hoan tien truoc do (94).");
@@ -497,9 +508,8 @@ public class PaymentApplicationService {
 			}
 			JsonNode rcNode = payload.get("return_code");
 			Integer rcParsed = parseZaloReturnCode(rcNode);
-			boolean hasReturnCode = rcParsed != null;
-			if (hasReturnCode) {
-				int rc = rcParsed;
+			if (rcParsed != null) {
+				int rc = rcParsed.intValue();
 				if (rc == 3) {
 					log.info("ZaloPay callback dang xu ly app_trans_id={} depositId={}", appTransId, d.getId());
 					return Map.of("return_code", 1, "return_message", "success");
@@ -702,6 +712,18 @@ public class PaymentApplicationService {
 		o.setPaymentMethod(method);
 		orderPaymentRepository.save(p);
 		salesOrderRepository.save(o);
+
+		// Model event-based: moi lan thu tien online tao 1 row Transactions rieng (ref = OrderPayment).
+		FinancialTransaction tx = new FinancialTransaction();
+		tx.setUserId(o.getCustomerId());
+		tx.setType("Purchase");
+		tx.setAmount(p.getAmount());
+		tx.setStatus("Completed");
+		tx.setDescription("Thanh toan don hang #" + o.getOrderNumber() + " qua " + method);
+		tx.setReferenceId(p.getId());
+		tx.setReferenceType("OrderPayment");
+		tx.setPaymentGateway(normalizeGateway(method));
+		financialTransactionRepository.save(tx);
 
 		// Gui thong bao in-app cho khach hang
 		String gatewayLabel = "vnpay".equals(method) ? "VNPay" : "zalopay".equals(method) ? "ZaloPay" : method;
@@ -984,5 +1006,18 @@ public class PaymentApplicationService {
 			log.error("Loi khi goi ZaloPay refund cho deposit {}: {}", d.getId(), e.getMessage());
 			return false;
 		}
+	}
+
+	// Chuan hoa gateway cho CK_Trans_PaymentGateway (vnpay|zalopay|cash).
+	// Bat ky gia tri nao khong phai vnpay/zalopay (sau lowercase) se map thanh 'cash'.
+	private String normalizeGateway(String method) {
+		if (method == null) {
+			return "cash";
+		}
+		String v = method.trim().toLowerCase();
+		if ("vnpay".equals(v) || "zalopay".equals(v)) {
+			return v;
+		}
+		return "cash";
 	}
 }

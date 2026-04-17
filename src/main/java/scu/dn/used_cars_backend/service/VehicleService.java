@@ -59,6 +59,18 @@ import java.util.Set;
 public class VehicleService {
 
 	private static final Set<String> VEHICLE_STATUSES = Set.of("Available", "Reserved", "Sold", "Hidden", "InTransfer");
+
+	// State machine chuyen trang thai xe (chi Staff/Manager tuan theo;
+	// Admin override duoc nhung BAT BUOC co note).
+	// - Sold la trang thai cuoi: khong tu dong chuyen tay ve Available/Reserved.
+	// - Reserved co the ve Available (huy don) hoac Sold (confirm ban).
+	private static final Map<String, Set<String>> ALLOWED_VEHICLE_TRANSITIONS = Map.of(
+			"Available", Set.of("Reserved", "Hidden", "InTransfer"),
+			"Reserved", Set.of("Available", "Sold"),
+			"Sold", Set.of(),
+			"Hidden", Set.of("Available"),
+			"InTransfer", Set.of("Available"));
+
 	private static final ZoneId VN = ZoneId.of("Asia/Ho_Chi_Minh");
 	/** Tiền tố khóa cache — đổi khi DTO list/detail thay đổi để tránh trả bản cũ thiếu field. */
 	private static final String VEHICLE_LIST_CACHE_PREFIX = "v4:";
@@ -414,6 +426,8 @@ public class VehicleService {
 		Vehicle v = vehicleRepository.findManagedDetailById(vehicleId)
 				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
 		assertCanManageBranch(actorUserId, isAdmin, v.getBranch());
+		// B3: chan chuyen trang thai sai state machine (admin override duoc nhung can note)
+		assertVehicleTransitionAllowed(v.getStatus(), newStatus, isAdmin, note);
 		if ("Available".equals(newStatus)) {
 			depositService.syncOpenDepositsWhenVehicleSetAvailable(vehicleId);
 		}
@@ -425,7 +439,7 @@ public class VehicleService {
 
 	/** Đổi trạng thái xe hàng loạt — Fail-Fast: nếu bất kỳ xe nào ngoài chi nhánh → 403. */
 	@Transactional
-	public void bulkChangeStatus(java.util.List<Long> vehicleIds, String newStatus,
+	public void bulkChangeStatus(java.util.List<Long> vehicleIds, String newStatus, String note,
 			long actorUserId, boolean isAdmin) {
 		// B1: kiểm tra input
 		if (vehicleIds == null || vehicleIds.isEmpty()) {
@@ -435,18 +449,43 @@ public class VehicleService {
 			throw new BusinessException(ErrorCode.INVALID_VEHICLE_STATUS,
 					"Trạng thái '" + newStatus + "' không hợp lệ.");
 		}
-		// B2: lấy từng xe, kiểm quyền + cập nhật
+		// B2: lấy từng xe, kiểm quyền + transition + cập nhật
 		for (Long id : vehicleIds) {
 			Vehicle v = vehicleRepository.findManagedDetailById(id)
 					.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND,
 							"Không tìm thấy xe ID=" + id + "."));
 			assertCanManageBranch(actorUserId, isAdmin, v.getBranch());
+			assertVehicleTransitionAllowed(v.getStatus(), newStatus, isAdmin, note);
 			if ("Available".equals(newStatus)) {
 				depositService.syncOpenDepositsWhenVehicleSetAvailable(id);
 			}
 			v.setStatus(newStatus);
 			vehicleRepository.save(v);
 			evictVehicleCaches(id);
+		}
+	}
+
+	// Chan chuyen trang thai xe trai state machine.
+	// Logic:
+	// - Admin override: duoc phep moi transition, nhung BAT BUOC co note (audit).
+	// - Staff/Manager: chi duoc chuyen theo ALLOWED_VEHICLE_TRANSITIONS.
+	// - Neu from == to thi bo qua (khong coi la transition).
+	private void assertVehicleTransitionAllowed(String from, String to, boolean isAdmin, String note) {
+		if (from == null || from.equals(to)) {
+			return;
+		}
+		if (isAdmin) {
+			if (note == null || note.isBlank()) {
+				throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+						"Admin override trạng thái xe bắt buộc phải có lý do (note).");
+			}
+			return;
+		}
+		Set<String> allowed = ALLOWED_VEHICLE_TRANSITIONS.getOrDefault(from, Set.of());
+		if (!allowed.contains(to)) {
+			throw new BusinessException(ErrorCode.INVALID_VEHICLE_STATE_TRANSITION,
+					"Chuyển trạng thái xe không hợp lệ: " + from + " -> " + to
+							+ ". Chỉ Admin mới có thể override (kèm lý do).");
 		}
 	}
 

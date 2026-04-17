@@ -442,6 +442,10 @@ public class DepositService {
 		d.setNotes(n + audit);
 		d.setStatus("Refunded");
 		depositRepository.save(d);
+		// Ghi row Refund vao Transactions
+		insertRefundTransaction(d.getCustomerId(), "Deposit", d.getId(),
+				d.getAmount(), d.getPaymentGateway(),
+				"Hoan coc thu cong #" + d.getId());
 		log.info("Deposit {} danh dau Refunded thu cong boi user {}.", depositId, actorUserId);
 	}
 
@@ -837,5 +841,24 @@ public class DepositService {
 		catch (DateTimeParseException e) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "expiryDate không hợp lệ.");
 		}
+	}
+
+	// Tao 1 row Transactions type='Refund' khi hoan tien thanh cong.
+	void insertRefundTransaction(Long userId, String referenceType, Long referenceId,
+			BigDecimal amount, String gateway, String description) {
+		String gw = (gateway != null) ? gateway.trim().toLowerCase() : "cash";
+		if (!"vnpay".equals(gw) && !"zalopay".equals(gw)) {
+			gw = "cash";
+		}
+		FinancialTransaction tx = new FinancialTransaction();
+		tx.setUserId(userId);
+		tx.setType("Refund");
+		tx.setAmount(amount);
+		tx.setStatus("Completed");
+		tx.setDescription(description);
+		tx.setReferenceId(referenceId);
+		tx.setReferenceType(referenceType);
+		tx.setPaymentGateway(gw);
+		financialTransactionRepository.save(tx);
 	}
 }

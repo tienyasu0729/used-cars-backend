@@ -12,6 +12,7 @@ import scu.dn.used_cars_backend.entity.SalesOrder;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 public interface SalesOrderRepository extends JpaRepository<SalesOrder, Long> {
@@ -97,4 +98,20 @@ public interface SalesOrderRepository extends JpaRepository<SalesOrder, Long> {
 	@Query("select coalesce(sum(o.totalPrice), 0) from SalesOrder o where o.status = 'Completed' and o.createdAt >= :fromInclusive and o.createdAt < :toExclusive")
 	BigDecimal sumCompletedAllBetween(@Param("fromInclusive") Instant fromInclusive,
 			@Param("toExclusive") Instant toExclusive);
+
+	// Dem so order dang active (Pending/Processing) tren 1 xe.
+	// Dung de chan "1 xe - 1 order active" trong OrderService.create.
+	@Query("select count(o) from SalesOrder o where o.vehicle.id = :vehicleId and o.status in :statuses")
+	long countByVehicleIdAndStatusIn(@Param("vehicleId") long vehicleId,
+			@Param("statuses") List<String> statuses);
+
+	// Tim don Pending khong co coc (depositAmount = 0) va tao truoc moc thoi gian cutoff.
+	// Dung cho scheduler auto-cancel don giu xe ao qua han.
+	@Query("""
+			select o from SalesOrder o
+			where o.status = 'Pending'
+			  and o.depositAmount = 0
+			  and o.createdAt < :cutoff
+			""")
+	List<SalesOrder> findPendingDirectOrdersCreatedBefore(@Param("cutoff") Instant cutoff);
 }

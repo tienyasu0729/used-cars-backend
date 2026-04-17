@@ -11,9 +11,11 @@ import scu.dn.used_cars_backend.common.exception.ErrorCode;
 import scu.dn.used_cars_backend.dto.sales.TransactionRowDto;
 import scu.dn.used_cars_backend.entity.Deposit;
 import scu.dn.used_cars_backend.entity.FinancialTransaction;
+import scu.dn.used_cars_backend.entity.OrderPayment;
 import scu.dn.used_cars_backend.entity.SalesOrder;
 import scu.dn.used_cars_backend.repository.DepositRepository;
 import scu.dn.used_cars_backend.repository.FinancialTransactionRepository;
+import scu.dn.used_cars_backend.repository.OrderPaymentRepository;
 import scu.dn.used_cars_backend.repository.SalesOrderRepository;
 
 import java.time.Instant;
@@ -36,6 +38,7 @@ public class TransactionQueryService {
 	private final FinancialTransactionRepository financialTransactionRepository;
 	private final DepositRepository depositRepository;
 	private final SalesOrderRepository salesOrderRepository;
+	private final OrderPaymentRepository orderPaymentRepository;
 	private final StaffService staffService;
 
 	@Transactional(readOnly = true)
@@ -111,6 +114,11 @@ public class TransactionQueryService {
 		if ("Order".equals(referenceType)) {
 			return salesOrderRepository.findById(referenceId)
 					.map(SalesOrder::getPaymentMethod)
+					.orElse(null);
+		}
+		if ("OrderPayment".equals(referenceType)) {
+			return orderPaymentRepository.findById(referenceId)
+					.map(OrderPayment::getPaymentMethod)
 					.orElse(null);
 		}
 		return null;

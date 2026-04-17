@@ -78,6 +78,7 @@ public class OrderController {
 	}
 
 	@PatchMapping("/{id}/cancel")
+	@PreAuthorize("isAuthenticated()")
 	public ResponseEntity<ApiResponse<Void>> cancel(@PathVariable long id,
 			@Valid @RequestBody(required = false) CancelOrderRequest body, Authentication auth) {
 		long uid = AuthenticationDetailsUtils.requireUserId(auth);

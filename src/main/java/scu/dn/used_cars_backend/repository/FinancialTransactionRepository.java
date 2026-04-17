@@ -37,6 +37,9 @@ public interface FinancialTransactionRepository extends JpaRepository<FinancialT
 			     where d.id = t.referenceId and d.vehicleId = v.id and v.branch.id = :branchId and v.deleted = false))
 			  or (t.referenceType = 'Order' and exists (
 			     select 1 from SalesOrder o where o.id = t.referenceId and o.branch.id = :branchId))
+			  or (t.referenceType = 'OrderPayment' and exists (
+			     select 1 from OrderPayment op
+			     where op.id = t.referenceId and op.order.branch.id = :branchId))
 			)
 			order by t.createdAt desc
 			""")

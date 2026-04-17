@@ -16,4 +16,7 @@ public class BulkStatusRequest {
 
 	@NotBlank(message = "Trạng thái mới không được để trống.")
 	private String status;
+
+	/** Ghi chú / lý do — bắt buộc khi Admin override transition ngoài state machine. */
+	private String note;
 }

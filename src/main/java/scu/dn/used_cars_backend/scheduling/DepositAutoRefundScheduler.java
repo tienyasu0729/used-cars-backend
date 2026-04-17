@@ -12,7 +12,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import lombok.RequiredArgsConstructor;
 import scu.dn.used_cars_backend.entity.Deposit;
+import scu.dn.used_cars_backend.entity.FinancialTransaction;
 import scu.dn.used_cars_backend.repository.DepositRepository;
+import scu.dn.used_cars_backend.repository.FinancialTransactionRepository;
 import scu.dn.used_cars_backend.service.InAppNotificationService;
 
 // Scheduler doc lap — tu dong chuyen deposit RefundPending/RefundFailed sang Refunded
@@ -33,6 +35,7 @@ public class DepositAutoRefundScheduler {
 	private static final int MAX_DAYS = 3;
 
 	private final DepositRepository depositRepository;
+	private final FinancialTransactionRepository financialTransactionRepository;
 	private final InAppNotificationService inAppNotificationService;
 
 	// Chay moi 5 phut, bat dau 1 phut sau khi server khoi dong
@@ -61,6 +64,8 @@ public class DepositAutoRefundScheduler {
 				String tag = "[auto-refund] Tu dong chuyen Refunded sau thoi gian cho (" + GRACE_MINUTES + " phut)";
 				d.setNotes(n.isBlank() ? tag : n + " | " + tag);
 				depositRepository.save(d);
+				// Ghi row Refund vao Transactions
+				insertRefundTransaction(d);
 				log.info("[AutoRefund] Deposit {} da chuyen sang Refunded.", d.getId());
 
 				// B4: Gui thong bao in-app cho khach hang
@@ -80,5 +85,22 @@ public class DepositAutoRefundScheduler {
 				log.warn("[AutoRefund] Loi khi cap nhat deposit {}: {}", d.getId(), e.getMessage());
 			}
 		}
+	}
+
+	private void insertRefundTransaction(Deposit d) {
+		String gw = d.getPaymentGateway() != null ? d.getPaymentGateway().trim().toLowerCase() : "cash";
+		if (!"vnpay".equals(gw) && !"zalopay".equals(gw)) {
+			gw = "cash";
+		}
+		FinancialTransaction tx = new FinancialTransaction();
+		tx.setUserId(d.getCustomerId());
+		tx.setType("Refund");
+		tx.setAmount(d.getAmount());
+		tx.setStatus("Completed");
+		tx.setDescription("Auto-refund coc #" + d.getId());
+		tx.setReferenceId(d.getId());
+		tx.setReferenceType("Deposit");
+		tx.setPaymentGateway(gw);
+		financialTransactionRepository.save(tx);
 	}
 }

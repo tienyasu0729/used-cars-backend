@@ -168,11 +168,7 @@ public class DepositService {
 		}
 		else if ("zalopay".equals(pm)) {
 			var cfg = paymentGatewayConfigService.loadZaloPayForCreate();
-			String appTransId = LocalDate.now(VN).format(ZP_TRANS_DAY) + "_" + d.getId() + "_"
-					+ Long.toHexString(System.nanoTime());
-			if (appTransId.length() > 40) {
-				appTransId = appTransId.substring(0, 40);
-			}
+			String appTransId = newZaloAppTransIdForDeposit(d.getId());
 			d.setPaymentGateway("zalopay");
 			d.setGatewayTxnRef(appTransId);
 			depositRepository.save(d);
@@ -185,8 +181,24 @@ public class DepositService {
 			catch (JsonProcessingException e) {
 				throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "Không tạo embed_data ZaloPay.");
 			}
-			String orderUrl = zaloPayService.createOrderAndGetPayUrl(cfg, appTransId, req.getAmount().longValueExact(),
-					String.valueOf(customerId), "Dat coc xe #" + d.getId(), embed);
+			String orderUrl = null;
+			for (int attempt = 0; attempt < 2; attempt++) {
+				try {
+					orderUrl = zaloPayService.createOrderAndGetPayUrl(cfg, appTransId, req.getAmount().longValueExact(),
+							String.valueOf(customerId), "Dat coc xe #" + d.getId(), embed);
+					break;
+				}
+				catch (BusinessException ex) {
+					if (attempt == 0 && ErrorCode.VALIDATION_FAILED.equals(ex.getErrorCode())) {
+						appTransId = newZaloAppTransIdForDeposit(d.getId());
+						d.setGatewayTxnRef(appTransId);
+						depositRepository.save(d);
+						log.info("ZaloPay create deposit: đổi app_trans_id và thử lại — {}", appTransId);
+						continue;
+					}
+					throw ex;
+				}
+			}
 			if (orderUrl == null || orderUrl.isBlank()) {
 				throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "ZaloPay thiếu order_url.");
 			}
@@ -210,6 +222,104 @@ public class DepositService {
 				.depositDate(d.getDepositDate().toString())
 				.expiryDate(d.getExpiryDate().toString())
 				.build();
+	}
+
+	@Transactional(rollbackFor = Exception.class)
+	public CreateDepositResponse resumeOnlinePayment(long actorUserId, String jwtRole, long depositId, String clientIp) {
+		if (!ROLE_CUSTOMER.equals(jwtRole)) {
+			throw new BusinessException(ErrorCode.DEPOSIT_ACCESS_DENIED,
+					"Chỉ tài khoản khách hàng mới được tiếp tục thanh toán cọc online.");
+		}
+		Deposit d = depositRepository.findById(depositId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.DEPOSIT_NOT_FOUND, "Không tìm thấy cọc."));
+		assertCanModifyDeposit(actorUserId, jwtRole, d);
+		if (cancelIfExpiredOnlineDeposit(depositId)) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+					"Cọc đã hết hạn thanh toán. Vui lòng hủy và đặt cọc lại nếu xe còn trống.");
+		}
+		d = depositRepository.findById(depositId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.DEPOSIT_NOT_FOUND, "Không tìm thấy cọc."));
+		if (!"AwaitingPayment".equals(d.getStatus())) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+					"Chỉ cọc đang chờ thanh toán online mới được tiếp tục.");
+		}
+		String gw = d.getPaymentGateway();
+		if (gw == null || gw.isBlank()) {
+			throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "Thiếu thông tin cổng thanh toán.");
+		}
+		String gwTrim = gw.trim();
+		if ("vnpay".equalsIgnoreCase(gwTrim)) {
+			String txnRef = d.getGatewayTxnRef();
+			if (txnRef == null || txnRef.isBlank()) {
+				throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "Thiếu mã giao dịch VNPay.");
+			}
+			var cfg = paymentGatewayConfigService.loadVnpayForCreate();
+			String info = "Dat coc id " + d.getId();
+			VnpayService.VnpayPayUrlResult built = vnpayService.buildPaymentUrl(cfg, txnRef, d.getAmount(), info,
+					clientIp);
+			d.setGatewayTransRef(built.vnpCreateDate());
+			depositRepository.save(d);
+			return CreateDepositResponse.builder()
+					.id(d.getId())
+					.vehicleId(d.getVehicleId())
+					.amount(d.getAmount().toPlainString())
+					.status(d.getStatus())
+					.paymentUrl(built.paymentUrl())
+					.depositDate(d.getDepositDate().toString())
+					.expiryDate(d.getExpiryDate().toString())
+					.build();
+		}
+		if ("zalopay".equalsIgnoreCase(gwTrim)) {
+			String appTransId = d.getGatewayTxnRef();
+			if (appTransId == null || appTransId.isBlank()) {
+				throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "Thiếu mã giao dịch ZaloPay.");
+			}
+			appTransId = appTransId.trim();
+			var cfg = paymentGatewayConfigService.loadZaloPayForCreate();
+			String base = paymentGatewayConfigService.frontendBaseUrl().replaceAll("/$", "");
+			String redirect = base + "/payment/result?kind=zalo_deposit&depositId=" + d.getId() + "&vehicleId="
+					+ d.getVehicleId();
+			String embed;
+			try {
+				embed = objectMapper.writeValueAsString(Map.of("redirecturl", redirect));
+			}
+			catch (JsonProcessingException e) {
+				throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "Không tạo embed_data ZaloPay.");
+			}
+			String orderUrl = null;
+			for (int attempt = 0; attempt < 2; attempt++) {
+				try {
+					orderUrl = zaloPayService.createOrderAndGetPayUrl(cfg, appTransId, d.getAmount().longValueExact(),
+							String.valueOf(d.getCustomerId()), "Dat coc xe #" + d.getId(), embed);
+					break;
+				}
+				catch (BusinessException ex) {
+					if (attempt == 0 && ErrorCode.VALIDATION_FAILED.equals(ex.getErrorCode())) {
+						appTransId = newZaloAppTransIdForDeposit(d.getId());
+						d.setGatewayTxnRef(appTransId);
+						depositRepository.save(d);
+						log.info("ZaloPay resume: đổi app_trans_id và thử lại — {}", appTransId);
+						continue;
+					}
+					throw ex;
+				}
+			}
+			if (orderUrl == null || orderUrl.isBlank()) {
+				throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "ZaloPay thiếu order_url.");
+			}
+			d.setGatewayOrderUrl(orderUrl);
+			depositRepository.save(d);
+			return CreateDepositResponse.builder()
+					.id(d.getId())
+					.vehicleId(d.getVehicleId())
+					.amount(d.getAmount().toPlainString())
+					.status(d.getStatus())
+					.paymentUrl(orderUrl)
+					.depositDate(d.getDepositDate().toString())
+					.expiryDate(d.getExpiryDate().toString())
+					.build();
+		}
+		throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Cổng thanh toán không hỗ trợ tiếp tục từ đây.");
 	}
 
 	@Transactional(readOnly = true)
@@ -397,8 +507,7 @@ public class DepositService {
 	@Transactional(rollbackFor = Exception.class)
 	public void cancelPendingOnlineDepositTimedOut(long depositId) {
 		Deposit d = depositRepository.findById(depositId).orElse(null);
-		// Xu ly ca Pending va AwaitingPayment
-		if (d == null || (!"Pending".equals(d.getStatus()) && !"AwaitingPayment".equals(d.getStatus()))) {
+		if (d == null || !"AwaitingPayment".equals(d.getStatus())) {
 			return;
 		}
 		String gw = d.getPaymentGateway();
@@ -413,8 +522,7 @@ public class DepositService {
 	@Transactional(rollbackFor = Exception.class)
 	public boolean cancelIfExpiredOnlineDeposit(long depositId) {
 		Deposit d = depositRepository.findById(depositId).orElse(null);
-		// Xu ly ca Pending va AwaitingPayment
-		if (d == null || (!"Pending".equals(d.getStatus()) && !"AwaitingPayment".equals(d.getStatus()))) return false;
+		if (d == null || !"AwaitingPayment".equals(d.getStatus())) return false;
 		String gw = d.getPaymentGateway();
 		if (gw == null || gw.isBlank()) return false;
 		if (d.getCreatedAt() == null) return false;
@@ -599,6 +707,15 @@ public class DepositService {
 						.min(Comparator.comparingInt(VehicleImage::getSortOrder))
 						.map(VehicleImage::getImageUrl)
 						.orElse(null));
+	}
+
+	private static String newZaloAppTransIdForDeposit(long depositId) {
+		String appTransId = LocalDate.now(VN).format(ZP_TRANS_DAY) + "_" + depositId + "_"
+				+ Long.toHexString(System.nanoTime());
+		if (appTransId.length() > 40) {
+			appTransId = appTransId.substring(0, 40);
+		}
+		return appTransId;
 	}
 
 	private DepositListItemDto toListItem(Deposit d, VehicleDepositRowInfo vi, String customerName) {

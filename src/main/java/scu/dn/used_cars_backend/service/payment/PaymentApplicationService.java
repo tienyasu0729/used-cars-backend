@@ -71,10 +71,16 @@ public class PaymentApplicationService {
 	private final WebhookIpAllowlistService webhookIpAllowlistService;
 	private final scu.dn.used_cars_backend.repository.UserRepository userRepository;
 	private final scu.dn.used_cars_backend.service.EmailNotificationService emailNotificationService;
+	private final scu.dn.used_cars_backend.service.InAppNotificationService inAppNotificationService;
 
 	@Transactional
 	public PaymentUrlResponse createVnpay(long userId, PaymentCreateRequest req, String clientIp) {
-		SalesOrder order = loadOrderAndAssertOwner(req.getOrderId(), userId);
+		return createVnpay(userId, false, req, clientIp);
+	}
+
+	@Transactional
+	public PaymentUrlResponse createVnpay(long userId, boolean isStaff, PaymentCreateRequest req, String clientIp) {
+		SalesOrder order = loadOrderAndAssertActor(req.getOrderId(), userId, isStaff);
 		assertPayableAmount(order, req.getAmount());
 		var cfg = paymentGatewayConfigService.loadVnpayForCreate();
 		String txnRef = "U" + order.getId() + "T" + Long.toHexString(System.nanoTime());
@@ -89,12 +95,24 @@ public class PaymentApplicationService {
 				clientIp);
 		pay.setVnpPayCreateDate(built.vnpCreateDate());
 		orderPaymentRepository.save(pay);
-		return new PaymentUrlResponse(built.paymentUrl());
+		String paymentUrl = built.paymentUrl();
+
+		// Neu staff tao link -> gui email chua link thanh toan cho khach
+		if (isStaff) {
+			sendPaymentLinkEmailToCustomer(order, paymentUrl, "VNPay");
+		}
+
+		return new PaymentUrlResponse(paymentUrl);
 	}
 
 	@Transactional
 	public PaymentUrlResponse createZaloPay(long userId, PaymentCreateRequest req) {
-		SalesOrder order = loadOrderAndAssertOwner(req.getOrderId(), userId);
+		return createZaloPay(userId, false, req);
+	}
+
+	@Transactional
+	public PaymentUrlResponse createZaloPay(long userId, boolean isStaff, PaymentCreateRequest req) {
+		SalesOrder order = loadOrderAndAssertActor(req.getOrderId(), userId, isStaff);
 		assertPayableAmount(order, req.getAmount());
 		var cfg = paymentGatewayConfigService.loadZaloPayForCreate();
 		String appTransId = LocalDate.now(VN).format(YYMMDD) + "_" + order.getId() + "_"
@@ -120,6 +138,12 @@ public class PaymentApplicationService {
 		if (orderUrl == null || orderUrl.isBlank()) {
 			throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "ZaloPay thieu order_url.");
 		}
+
+		// Neu staff tao link -> gui email chua link thanh toan cho khach
+		if (isStaff) {
+			sendPaymentLinkEmailToCustomer(order, orderUrl, "ZaloPay");
+		}
+
 		return new PaymentUrlResponse(orderUrl);
 	}
 
@@ -678,6 +702,33 @@ public class PaymentApplicationService {
 		o.setPaymentMethod(method);
 		orderPaymentRepository.save(p);
 		salesOrderRepository.save(o);
+
+		// Gui thong bao in-app cho khach hang
+		String gatewayLabel = "vnpay".equals(method) ? "VNPay" : "zalopay".equals(method) ? "ZaloPay" : method;
+		try {
+			if (o.getCustomerId() != null) {
+				inAppNotificationService.createNotification(
+						o.getCustomerId(), "order_payment_success",
+						"Thanh toán đơn hàng thành công",
+						"Đơn hàng #" + o.getOrderNumber() + " đã được thanh toán thành công qua " + gatewayLabel + ".",
+						"/dashboard/orders");
+			}
+		} catch (Exception e) {
+			log.warn("Khong gui duoc thong bao cho khach (orderId={}): {}", o.getId(), e.getMessage());
+		}
+
+		// Gui thong bao in-app cho staff tao don
+		try {
+			if (o.getStaffId() != null) {
+				inAppNotificationService.createNotification(
+						o.getStaffId(), "order_payment_received",
+						"Khách đã thanh toán",
+						"Khách hàng đã thanh toán đơn hàng #" + o.getOrderNumber() + " thành công.",
+						"/staff/orders");
+			}
+		} catch (Exception e) {
+			log.warn("Khong gui duoc thong bao cho staff (orderId={}): {}", o.getId(), e.getMessage());
+		}
 	}
 
 	// Thực hiện khi thanh toán online thành công:
@@ -755,6 +806,33 @@ public class PaymentApplicationService {
 		return o;
 	}
 
+	// Kiem tra quyen: staff kiem tra chi nhanh, customer kiem tra chu don
+	private SalesOrder loadOrderAndAssertActor(long orderId, long userId, boolean isStaff) {
+		if (!isStaff) {
+			return loadOrderAndAssertOwner(orderId, userId);
+		}
+		SalesOrder o = salesOrderRepository.findByIdWithBranch(orderId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "Khong tim thay don."));
+		if ("Cancelled".equals(o.getStatus())) {
+			throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION, "Don da huy.");
+		}
+		int bid = staffService.getManagerBranchId(userId);
+		if (o.getBranch().getId() != bid) {
+			throw new BusinessException(ErrorCode.PAYMENT_FORBIDDEN, "Don khong thuoc chi nhanh cua ban.");
+		}
+		return o;
+	}
+
+	// Gui email link thanh toan cho khach khi staff tao link
+	private void sendPaymentLinkEmailToCustomer(SalesOrder order, String paymentUrl, String gateway) {
+		try {
+			userRepository.findById(order.getCustomerId()).ifPresent(customer ->
+					emailNotificationService.sendOrderPaymentLinkEmailAsync(order, customer, paymentUrl, gateway));
+		} catch (Exception e) {
+			log.warn("Khong gui duoc email link thanh toan cho khach (orderId={}): {}", order.getId(), e.getMessage());
+		}
+	}
+
 	private static void assertPayableAmount(SalesOrder order, BigDecimal amount) {
 		if (amount.compareTo(order.getDepositAmount()) == 0 || amount.compareTo(order.getRemainingAmount()) == 0) {
 			return;
@@ -792,5 +870,113 @@ public class PaymentApplicationService {
 	private static int zaloReturnCodeFromNode(JsonNode n) {
 		Integer p = parseZaloReturnCode(n);
 		return p != null ? p : Integer.MIN_VALUE;
+	}
+
+	// Hoan tien coc qua cong thanh toan (VNPay).
+	// Tra ve true neu hoan thanh cong, false neu khong hoan duoc (cash, thieu thong tin, ZaloPay chua ho tro).
+	// Nem exception neu gateway tra loi loi nghiem trong.
+	public boolean refundDeposit(Deposit d) {
+		String gateway = d.getPaymentGateway();
+
+		// B1: Tien mat hoac khong co cong thanh toan -> khong can goi API, hoan truc tiep tai quay
+		if (gateway == null || "cash".equalsIgnoreCase(gateway.trim())) {
+			return true;
+		}
+
+		String gw = gateway.trim().toLowerCase();
+
+		// B2: VNPay -> goi Merchant API refund
+		if ("vnpay".equals(gw)) {
+			return refundDepositVnpay(d);
+		}
+
+		// B3: ZaloPay -> goi ZaloPay Refund API
+		if ("zalopay".equals(gw)) {
+			return refundDepositZaloPay(d);
+		}
+
+		log.warn("Cong thanh toan '{}' khong ho tro refund tu dong. Deposit {}", gw, d.getId());
+		return false;
+	}
+
+	// Goi VNPay Merchant API de hoan tien coc
+	private boolean refundDepositVnpay(Deposit d) {
+		// gatewayTxnRef = vnp_TxnRef goc khi tao giao dich
+		String txnRef = d.getGatewayTxnRef();
+		if (txnRef == null || txnRef.isBlank()) {
+			log.warn("Deposit {} thieu gatewayTxnRef, khong the hoan tien VNPay.", d.getId());
+			return false;
+		}
+
+		// gatewayTransRef = vnpCreateDate (timestamp goc khi tao giao dich, format yyyyMMddHHmmss)
+		String payCreateDate = d.getGatewayTransRef();
+		if (payCreateDate == null || payCreateDate.isBlank()) {
+			log.warn("Deposit {} thieu gatewayTransRef (vnpCreateDate), khong the hoan tien VNPay.", d.getId());
+			return false;
+		}
+
+		// gatewayOrderUrl = vnp_TransactionNo tu gateway (co the null)
+		String vnpGatewayTxnNo = d.getGatewayOrderUrl();
+
+		try {
+			long amountMinor = d.getAmount().multiply(BigDecimal.valueOf(100)).longValueExact();
+			var cfg = paymentGatewayConfigService.loadVnpayForMerchantApi();
+			String reqId = VnpayMerchantApiService.newRequestId();
+
+			var resp = vnpayMerchantApiService.refund(
+					cfg, reqId, txnRef.trim(), amountMinor, "02",
+					payCreateDate.trim(),
+					vnpGatewayTxnNo != null ? vnpGatewayTxnNo.trim() : null,
+					"system-auto-refund",
+					"Hoan tien coc deposit #" + d.getId(),
+					"127.0.0.1");
+
+			String rc = resp.path("vnp_ResponseCode").asText("");
+			if ("00".equals(rc)) {
+				log.info("VNPay refund thanh cong cho deposit {}.", d.getId());
+				return true;
+			}
+			// 94 = da gui yeu cau hoan tien truoc do -> coi nhu da hoan
+			if ("94".equals(rc)) {
+				log.info("VNPay refund deposit {} da duoc xu ly truoc do (code 94).", d.getId());
+				return true;
+			}
+			String msg = resp.path("vnp_Message").asText(rc);
+			log.warn("VNPay refund deposit {} that bai: code={}, message={}", d.getId(), rc, msg);
+			// Loi vinh vien (du lieu sai, giao dich khong ton tai...) -> danh dau khong retry
+			if (isVnpayPermanentError(rc)) {
+				String n = d.getNotes() != null ? d.getNotes() : "";
+				if (!n.contains("[refund-no-retry]")) {
+					d.setNotes((n.isBlank() ? "" : n + " | ") + "[refund-no-retry] VNPay code=" + rc + ": " + msg);
+				}
+			}
+			return false;
+		} catch (Exception e) {
+			log.error("Loi khi goi VNPay refund cho deposit {}: {}", d.getId(), e.getMessage());
+			return false;
+		}
+	}
+
+	// Goi ZaloPay Refund API de hoan tien coc
+	private boolean refundDepositZaloPay(Deposit d) {
+		// gatewayOrderUrl = zp_trans_id (ma giao dich ZaloPay)
+		String zpTransId = d.getGatewayOrderUrl();
+		if (zpTransId == null || zpTransId.isBlank()) {
+			log.warn("Deposit {} thieu gatewayOrderUrl (zp_trans_id), khong the hoan tien ZaloPay.", d.getId());
+			return false;
+		}
+
+		try {
+			var cfg = paymentGatewayConfigService.loadZaloPayForCreate();
+			long amountVnd = d.getAmount().longValueExact();
+			String desc = "Hoan tien coc deposit #" + d.getId();
+
+			long refundId = zaloPayService.refund(cfg, zpTransId.trim(), amountVnd, desc);
+			log.info("ZaloPay refund da tiep nhan cho deposit {}. refund_id={}", d.getId(), refundId);
+			return true;
+		} catch (Exception e) {
+			log.error("Loi khi goi ZaloPay refund cho deposit {}: {}", d.getId(), e.getMessage());
+			return false;
+		}
 	}
 }

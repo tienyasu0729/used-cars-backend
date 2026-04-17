@@ -12,6 +12,17 @@ import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+/**
+ * STUB — CHỈ GHI LOG, KHÔNG XỬ LÝ NGHIỆP VỤ.
+ * <p>
+ * Webhook thật nằm trong {@code PaymentController} + {@code PaymentApplicationService}:
+ * <ul>
+ *   <li>VNPay IPN: GET/POST {@code /api/v1/payment/vnpay/ipn}</li>
+ *   <li>ZaloPay callback: POST {@code /api/v1/payment/zalopay/callback}</li>
+ * </ul>
+ * KHÔNG cấu hình cổng thanh toán trỏ vào {@code /api/v1/webhook/*}.
+ */
+@Deprecated
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/webhook")

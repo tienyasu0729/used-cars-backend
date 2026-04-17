@@ -177,7 +177,7 @@ public class VehicleService {
 	}
 
 	/**
-	 * Chi tiết xe công khai + thêm myPendingDepositId cho user đã login.
+	 * Chi tiết xe công khai + thêm myPendingDepositId / myConfirmedDepositId cho user đã login.
 	 * Reuse DTO từ cache, chỉ enrich thêm field user-specific.
 	 */
 	@Transactional(readOnly = true)
@@ -189,10 +189,18 @@ public class VehicleService {
 		VehicleDetailDto dto = new VehicleDetailDto();
 		BeanUtils.copyProperties(cached, dto);
 		dto.setMyPendingDepositId(null);
+		dto.setMyConfirmedDepositId(null);
 		if (userId != null) {
-			depositRepository.findByVehicleIdAndStatusIn(vehicleId, List.of("AwaitingPayment")).stream()
-					.filter(d -> d.getCustomerId() == userId).findFirst()
-					.ifPresent(d -> dto.setMyPendingDepositId(d.getId()));
+			var deposits = depositRepository.findByVehicleIdAndStatusIn(
+					vehicleId, List.of("AwaitingPayment", "Confirmed"));
+			for (var d : deposits) {
+				if (d.getCustomerId() != userId) continue;
+				if ("AwaitingPayment".equals(d.getStatus())) {
+					dto.setMyPendingDepositId(d.getId());
+				} else if ("Confirmed".equals(d.getStatus())) {
+					dto.setMyConfirmedDepositId(d.getId());
+				}
+			}
 		}
 		return dto;
 	}

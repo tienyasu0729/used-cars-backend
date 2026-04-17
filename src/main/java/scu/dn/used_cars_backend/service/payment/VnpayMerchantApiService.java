@@ -8,6 +8,8 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import scu.dn.used_cars_backend.common.exception.BusinessException;
 import scu.dn.used_cars_backend.common.exception.ErrorCode;
 
@@ -20,6 +22,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class VnpayMerchantApiService {
 
+	private static final Logger log = LoggerFactory.getLogger(VnpayMerchantApiService.class);
 	private static final String VNP_VERSION = "2.1.0";
 	private static final ZoneId VN = ZoneId.of("Asia/Ho_Chi_Minh");
 	private static final DateTimeFormatter VNP_TS = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
@@ -84,7 +87,18 @@ public class VnpayMerchantApiService {
 				transactionType, txnRef, amt, txnNo, payCreateDate, by, createDate, ip, info);
 		body.put("vnp_SecureHash", PaymentHmacUtil.hmacSha512Hex(cfg.hashSecret(), data));
 		JsonNode resp = postJson(cfg.merchantApiUrl(), body);
-		VnpayMerchantSigning.assertRefundResponseHash(resp, cfg.hashSecret());
+		// VNPay sandbox co the tra error response khong co vnp_SecureHash.
+		// Chi bat buoc verify hash khi response thanh cong (code "00").
+		String hash = resp.path("vnp_SecureHash").asText("");
+		String respCode = resp.path("vnp_ResponseCode").asText("");
+		if (!hash.isEmpty()) {
+			VnpayMerchantSigning.assertRefundResponseHash(resp, cfg.hashSecret());
+		} else if ("00".equals(respCode)) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+					"VNPay refund thanh cong nhung thieu vnp_SecureHash — khong an toan.");
+		} else {
+			log.warn("VNPay refund response khong co vnp_SecureHash (code={}). Tra ve error response.", respCode);
+		}
 		return resp;
 	}
 

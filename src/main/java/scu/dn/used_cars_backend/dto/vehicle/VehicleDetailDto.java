@@ -41,5 +41,7 @@ public class VehicleDetailDto {
 	private List<VehicleImageDto> images;
 	/** ID cọc AwaitingPayment của user hiện tại (nếu có) — null nếu không có hoặc chưa login */
 	private Long myPendingDepositId;
+	/** ID cọc Confirmed của user hiện tại (nếu có) — null nếu không có hoặc chưa login */
+	private Long myConfirmedDepositId;
 
 }

@@ -133,6 +133,84 @@ public class ZaloPayService {
 		}
 	}
 
+	// Goi ZaloPay Refund API: POST /v2/refund
+	// Tra ve refund_id neu thanh cong (return_code == 1), nem exception neu loi
+	public long refund(PaymentGatewayConfigService.ZaloPayRuntimeConfig cfg,
+			String zpTransId, long amountVnd, String description) {
+		String url = resolveRefundEndpoint(cfg.endpoint());
+		int appId = parseAppId(cfg.appId());
+		long timestamp = Instant.now().toEpochMilli();
+
+		// m_refund_id: yyMMdd_appId_random
+		String mRefundId = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyMMdd"))
+				+ "_" + appId + "_" + Long.toHexString(System.nanoTime());
+
+		String desc = description != null && !description.isBlank() ? description.trim() : "Hoan tien giao dich";
+
+		// mac = HMAC-SHA256(key1, app_id|zp_trans_id|amount|description|timestamp)
+		String macData = appId + "|" + zpTransId.trim() + "|" + amountVnd + "|" + desc + "|" + timestamp;
+		String mac = PaymentHmacUtil.hmacSha256Hex(cfg.key1(), macData);
+
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("app_id", appId);
+		body.put("m_refund_id", mRefundId);
+		body.put("zp_trans_id", zpTransId.trim());
+		body.put("amount", amountVnd);
+		body.put("timestamp", timestamp);
+		body.put("description", desc);
+		body.put("mac", mac);
+
+		String json;
+		try {
+			json = objectMapper.writeValueAsString(body);
+		} catch (Exception e) {
+			throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "Không tạo được body refund ZaloPay.");
+		}
+		String raw = restClient.post()
+				.uri(url)
+				.contentType(MediaType.APPLICATION_JSON)
+				.body(json)
+				.retrieve()
+				.body(String.class);
+		if (raw == null || raw.isBlank()) {
+			throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "ZaloPay refund không phản hồi.");
+		}
+		try {
+			JsonNode root = objectMapper.readTree(raw);
+			int rc = root.path("return_code").asInt(-1);
+			if (rc == 1) {
+				return root.path("refund_id").asLong(0);
+			}
+			// rc == 2: dang xu ly (async) — coi nhu da tiep nhan
+			if (rc == 2) {
+				return root.path("refund_id").asLong(0);
+			}
+			String msg = root.path("return_message").asText("Loi ZaloPay refund")
+					+ " (" + root.path("sub_return_message").asText("") + ")";
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, msg);
+		} catch (BusinessException e) {
+			throw e;
+		} catch (Exception e) {
+			throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "Không đọc được phản hồi refund ZaloPay.");
+		}
+	}
+
+	// Resolve endpoint: /v2/create -> /v2/refund
+	private static String resolveRefundEndpoint(String createEndpoint) {
+		String e = createEndpoint == null ? "" : createEndpoint.trim();
+		if (e.isEmpty()) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Thiếu zalopay_endpoint.");
+		}
+		if (e.contains("/v2/create")) {
+			return e.replace("/v2/create", "/v2/refund");
+		}
+		if (e.endsWith("/create")) {
+			return e.substring(0, e.length() - "/create".length()) + "/refund";
+		}
+		throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+				"zalopay_endpoint phải chứa /v2/create hoặc kết thúc bằng /create.");
+	}
+
 	private static String resolveQueryEndpoint(String createEndpoint) {
 		String e = createEndpoint == null ? "" : createEndpoint.trim();
 		if (e.isEmpty()) {

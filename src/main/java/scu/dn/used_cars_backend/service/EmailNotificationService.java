@@ -20,6 +20,7 @@ import scu.dn.used_cars_backend.repository.UserRepository;
 import scu.dn.used_cars_backend.service.payment.PaymentGatewayConfigService;
 
 import scu.dn.used_cars_backend.entity.Deposit;
+import scu.dn.used_cars_backend.entity.SalesOrder;
 
 import java.math.BigDecimal;
 import java.text.NumberFormat;
@@ -252,5 +253,138 @@ public class EmailNotificationService {
 			return "—";
 		}
 		return date.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+	}
+
+	// ===== EMAIL XAC NHAN DON HANG DA TAO =====
+
+	@Async
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public void sendOrderCreatedEmailAsync(SalesOrder order, Vehicle vehicle, User customer) {
+		try {
+			sendOrderCreatedEmail(order, vehicle, customer);
+		} catch (Exception e) {
+			log.warn("Loi khi gui email xac nhan don hang (orderId={}): {}", order.getId(), e.getMessage());
+		}
+	}
+
+	private void sendOrderCreatedEmail(SalesOrder order, Vehicle vehicle, User customer) {
+		if (customer.getEmail() == null || customer.getEmail().isBlank()) {
+			return;
+		}
+		JavaMailSender sender = javaMailSenderProvider.getIfAvailable();
+		if (sender == null) {
+			log.warn("SMTP chua cau hinh, khong gui duoc email don hang cho khach {}.", customer.getId());
+			return;
+		}
+		String from = (mailFromProp != null && !mailFromProp.isBlank()) ? mailFromProp : springMailUsername;
+		if (from == null || from.isBlank()) {
+			return;
+		}
+
+		String customerName = customer.getName() != null ? customer.getName() : "Quý khách";
+		String vehicleName = vehicle.getTitle() != null && !vehicle.getTitle().isBlank()
+				? vehicle.getTitle() : buildVehicleName(vehicle);
+		String totalText = formatPrice(order.getTotalPrice());
+		String depositText = order.getDepositAmount() != null && order.getDepositAmount().compareTo(BigDecimal.ZERO) > 0
+				? formatPrice(order.getDepositAmount()) : "0 VNĐ";
+		String remainingText = formatPrice(order.getRemainingAmount());
+
+		String frontendBaseUrl = paymentGatewayConfigService.frontendBaseUrl();
+		String orderLink = frontendBaseUrl + "/dashboard/orders";
+
+		String subject = "Đơn hàng #" + order.getOrderNumber() + " đã được tạo — BanXeOTô Đà Nẵng";
+		String body = "<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">"
+				+ "<h2 style=\"color: #1A3C6E;\">Đơn hàng đã được tạo!</h2>"
+				+ "<p>Xin chào <b>" + customerName + "</b>,</p>"
+				+ "<p>Đơn hàng của bạn tại BanXeOTô Đà Nẵng đã được tạo thành công:</p>"
+				+ "<div style=\"background: #f9f9f9; padding: 16px; border-radius: 8px; margin: 16px 0;\">"
+				+ "<p style=\"margin: 4px 0;\"><b>Mã đơn:</b> " + order.getOrderNumber() + "</p>"
+				+ "<p style=\"margin: 4px 0;\"><b>Xe:</b> " + vehicleName + "</p>"
+				+ "<p style=\"margin: 4px 0;\"><b>Tổng giá:</b> " + totalText + "</p>"
+				+ "<p style=\"margin: 4px 0;\"><b>Đã cọc:</b> " + depositText + "</p>"
+				+ "<p style=\"margin: 4px 0;\"><b>Còn lại:</b> " + remainingText + "</p>"
+				+ "</div>"
+				+ "<p>Nhân viên showroom sẽ hướng dẫn bạn hoàn tất thanh toán.</p>"
+				+ "<p><a href=\"" + orderLink + "\" style=\"display: inline-block; padding: 12px 24px; "
+				+ "background-color: #1A3C6E; color: #ffffff; text-decoration: none; border-radius: 6px;\">"
+				+ "Xem đơn hàng</a></p>"
+				+ "<p style=\"color: #888; font-size: 13px;\">BanXeOTô Đà Nẵng — Cảm ơn quý khách.</p>"
+				+ "</div>";
+
+		try {
+			MimeMessage mm = sender.createMimeMessage();
+			MimeMessageHelper helper = new MimeMessageHelper(mm, false, "UTF-8");
+			helper.setFrom(from);
+			helper.setTo(customer.getEmail());
+			helper.setSubject(subject);
+			helper.setText(body, true);
+			sender.send(mm);
+			log.info("Da gui email xac nhan don hang cho khach {} (orderId={})", customer.getId(), order.getId());
+		} catch (Exception e) {
+			log.warn("Gui email don hang that bai cho khach {}: {}", customer.getId(), e.getMessage());
+		}
+	}
+
+	// ===== EMAIL LINK THANH TOAN ONLINE =====
+
+	@Async
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public void sendOrderPaymentLinkEmailAsync(SalesOrder order, User customer, String paymentUrl, String gateway) {
+		try {
+			sendOrderPaymentLinkEmail(order, customer, paymentUrl, gateway);
+		} catch (Exception e) {
+			log.warn("Loi khi gui email link thanh toan (orderId={}): {}", order.getId(), e.getMessage());
+		}
+	}
+
+	private void sendOrderPaymentLinkEmail(SalesOrder order, User customer, String paymentUrl, String gateway) {
+		if (customer.getEmail() == null || customer.getEmail().isBlank()) {
+			return;
+		}
+		JavaMailSender sender = javaMailSenderProvider.getIfAvailable();
+		if (sender == null) {
+			log.warn("SMTP chua cau hinh, khong gui duoc email link thanh toan cho khach {}.", customer.getId());
+			return;
+		}
+		String from = (mailFromProp != null && !mailFromProp.isBlank()) ? mailFromProp : springMailUsername;
+		if (from == null || from.isBlank()) {
+			return;
+		}
+
+		String customerName = customer.getName() != null ? customer.getName() : "Quý khách";
+		String remainingText = formatPrice(order.getRemainingAmount());
+
+		String subject = "Thanh toán đơn hàng #" + order.getOrderNumber() + " — BanXeOTô Đà Nẵng";
+		String body = "<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">"
+				+ "<h2 style=\"color: #1A3C6E;\">Thanh toán đơn hàng</h2>"
+				+ "<p>Xin chào <b>" + customerName + "</b>,</p>"
+				+ "<p>Nhân viên showroom đã tạo liên kết thanh toán cho đơn hàng <b>#"
+				+ order.getOrderNumber() + "</b>:</p>"
+				+ "<div style=\"background: #f9f9f9; padding: 16px; border-radius: 8px; margin: 16px 0;\">"
+				+ "<p style=\"margin: 4px 0;\"><b>Số tiền:</b> " + remainingText + "</p>"
+				+ "<p style=\"margin: 4px 0;\"><b>Cổng thanh toán:</b> " + gateway + "</p>"
+				+ "</div>"
+				+ "<p>Nhấn nút bên dưới để thanh toán:</p>"
+				+ "<p><a href=\"" + paymentUrl + "\" style=\"display: inline-block; padding: 14px 28px; "
+				+ "background-color: #E8612A; color: #ffffff; text-decoration: none; border-radius: 6px; "
+				+ "font-weight: bold;\">Thanh toán ngay</a></p>"
+				+ "<p style=\"color: #888; font-size: 13px; margin-top: 16px;\">"
+				+ "Hoặc copy link: <a href=\"" + paymentUrl + "\">" + paymentUrl + "</a></p>"
+				+ "<p style=\"color: #888; font-size: 13px;\">BanXeOTô Đà Nẵng — Cảm ơn quý khách.</p>"
+				+ "</div>";
+
+		try {
+			MimeMessage mm = sender.createMimeMessage();
+			MimeMessageHelper helper = new MimeMessageHelper(mm, false, "UTF-8");
+			helper.setFrom(from);
+			helper.setTo(customer.getEmail());
+			helper.setSubject(subject);
+			helper.setText(body, true);
+			sender.send(mm);
+			log.info("Da gui email link thanh toan cho khach {} (orderId={}, gateway={})",
+					customer.getId(), order.getId(), gateway);
+		} catch (Exception e) {
+			log.warn("Gui email link thanh toan that bai cho khach {}: {}", customer.getId(), e.getMessage());
+		}
 	}
 }

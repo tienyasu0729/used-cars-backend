@@ -63,14 +63,16 @@ public class PaymentController {
 			Authentication authentication, HttpServletRequest request) {
 		long uid = AuthenticationDetailsUtils.requireUserId(authentication);
 		String ip = HttpServletClientIp.resolve(request);
-		return ResponseEntity.ok(ApiResponse.success(paymentApplicationService.createVnpay(uid, body, ip)));
+		boolean isStaff = !"CUSTOMER".equalsIgnoreCase(JwtRoleNames.primaryRole(authentication));
+		return ResponseEntity.ok(ApiResponse.success(paymentApplicationService.createVnpay(uid, isStaff, body, ip)));
 	}
 
 	@PostMapping("/zalopay/create")
 	public ResponseEntity<ApiResponse<PaymentUrlResponse>> createZaloPay(@Valid @RequestBody PaymentCreateRequest body,
 			Authentication authentication) {
 		long uid = AuthenticationDetailsUtils.requireUserId(authentication);
-		return ResponseEntity.ok(ApiResponse.success(paymentApplicationService.createZaloPay(uid, body)));
+		boolean isStaff = !"CUSTOMER".equalsIgnoreCase(JwtRoleNames.primaryRole(authentication));
+		return ResponseEntity.ok(ApiResponse.success(paymentApplicationService.createZaloPay(uid, isStaff, body)));
 	}
 
 	@GetMapping("/orders/{orderId}/payments")

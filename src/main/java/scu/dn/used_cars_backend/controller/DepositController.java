@@ -66,6 +66,16 @@ public class DepositController {
 		return ResponseEntity.ok(ApiResponse.success(depositService.getById(uid, role, id)));
 	}
 
+	@PostMapping("/{id}/resume-payment")
+	public ResponseEntity<ApiResponse<CreateDepositResponse>> resumePayment(@PathVariable long id,
+			Authentication auth, HttpServletRequest request) {
+		long uid = AuthenticationDetailsUtils.requireUserId(auth);
+		String role = JwtRoleNames.primaryRole(auth);
+		CreateDepositResponse r = depositService.resumeOnlinePayment(uid, role, id,
+				HttpServletClientIp.resolve(request));
+		return ResponseEntity.ok(ApiResponse.success(r));
+	}
+
 	@PatchMapping("/{id}/cancel")
 	public ResponseEntity<ApiResponse<Void>> cancel(@PathVariable long id,
 			@Valid @RequestBody(required = false) CancelDepositRequest body, Authentication auth) {

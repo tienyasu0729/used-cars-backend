@@ -54,6 +54,8 @@ public class OrderService {
 	private final VehicleService vehicleService;
 	private final DepositService depositService;
 	private final InAppNotificationService inAppNotificationService;
+	private final EmailNotificationService emailNotificationService;
+	private final scu.dn.used_cars_backend.service.payment.PaymentApplicationService paymentApplicationService;
 
 	@Transactional
 	public CreateOrderResponse create(long actorUserId, String jwtRole, CreateOrderRequest req) {
@@ -113,6 +115,21 @@ public class OrderService {
 		tx.setReferenceType("Order");
 		tx.setPaymentGateway(req.getPaymentMethod() != null ? req.getPaymentMethod() : "cash");
 		financialTransactionRepository.save(tx);
+
+		// Gui email xac nhan don hang cho khach
+		User customer = userRepository.findById(req.getCustomerId()).orElse(null);
+		if (customer != null) {
+			emailNotificationService.sendOrderCreatedEmailAsync(o, v, customer);
+		}
+		// Gui thong bao in-app cho khach
+		String vehicleLabel = (v.getTitle() != null && !v.getTitle().isBlank())
+				? v.getTitle() : (v.getCategory() != null ? v.getCategory().getName() : "xe");
+		inAppNotificationService.createNotification(
+				req.getCustomerId(), "order_created",
+				"Đơn hàng của bạn đã được tạo",
+				"Đơn hàng #" + num + " cho " + vehicleLabel + " đã được tạo.",
+				"/dashboard/orders");
+
 		return CreateOrderResponse.builder().id(o.getId()).orderNumber(num).status(o.getStatus()).build();
 	}
 
@@ -194,8 +211,16 @@ public class OrderService {
 		Vehicle v = o.getVehicle();
 		v.setStatus(VehicleStatus.AVAILABLE.getDbValue());
 		vehicleRepository.save(v);
+		// Hoan tien coc: neu la online (VNPay) -> goi API hoan ngay, neu cash -> tu dong xong
 		depositRepository.findByOrderId(orderId).ifPresent(d -> {
 			d.setStatus("RefundPending");
+			depositRepository.save(d);
+			boolean refunded = paymentApplicationService.refundDeposit(d);
+			if (refunded) {
+				d.setStatus("Refunded");
+			} else {
+				d.setStatus("RefundFailed");
+			}
 			depositRepository.save(d);
 		});
 		depositService.closeBlockingDepositsWhenOrderCancelled(v.getId(), o.getCustomerId(), orderId);

@@ -71,7 +71,6 @@ public interface DepositRepository extends JpaRepository<Deposit, Long> {
 			select d from Deposit d
 			where d.customerId = :customerId
 			and (:status is null or d.status = :status)
-			and d.status not in ('AwaitingPayment')
 			order by d.createdAt desc
 			""")
 	Page<Deposit> pageForCustomerVisible(@Param("customerId") long customerId, @Param("status") String status,
@@ -79,10 +78,11 @@ public interface DepositRepository extends JpaRepository<Deposit, Long> {
 
 	long countByCustomerIdAndStatusIn(long customerId, List<String> statuses);
 
-	// Tìm cả Pending và AwaitingPayment online deposits đã quá hạn
+	// Chỉ AwaitingPayment: chờ user thanh toán trên cổng. Pending sau khi đã trả VNPay/Zalo là cọc đã thanh toán
+	// (chờ showroom xác nhận) — không được hủy theo timeout tạo cọc.
 	@Query("""
 			select d.id from Deposit d
-			where d.status in ('Pending', 'AwaitingPayment')
+			where d.status = 'AwaitingPayment'
 			and lower(trim(coalesce(d.paymentGateway, ''))) in ('vnpay', 'zalopay')
 			and d.createdAt < :cutoff
 			""")
@@ -198,6 +198,13 @@ public interface DepositRepository extends JpaRepository<Deposit, Long> {
 			@Param("fromInclusive") Instant fromInclusive,
 			@Param("toExclusive") Instant toExclusive,
 			@Param("gateway") String gateway);
+
+	@Query("""
+			select d from Deposit d
+			where d.status in :statuses
+			order by d.createdAt asc
+			""")
+	List<Deposit> findByStatusIn(@Param("statuses") List<String> statuses);
 
 	@Query("""
 			select d from Deposit d

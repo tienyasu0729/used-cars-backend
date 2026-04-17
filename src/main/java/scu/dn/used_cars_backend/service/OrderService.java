@@ -387,6 +387,8 @@ public class OrderService {
 				.customerName(cust != null ? cust.getName() : "-")
 				.staffId(o.getStaffId())
 				.staffName(st != null ? st.getName() : null)
+				.staffEmail(st != null ? st.getEmail() : null)
+				.staffPhone(st != null ? st.getPhone() : null)
 				.branchId(o.getBranch().getId())
 				.branchName(o.getBranch().getName())
 				.vehicleId(o.getVehicle().getId())

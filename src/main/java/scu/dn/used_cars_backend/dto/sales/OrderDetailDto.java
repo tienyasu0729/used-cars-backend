@@ -15,6 +15,10 @@ public class OrderDetailDto {
 	String customerName;
 	Long staffId;
 	String staffName;
+	/** Email nhân viên tạo đơn — hỗ trợ khách liên hệ (có thể null). */
+	String staffEmail;
+	/** SĐT nhân viên tạo đơn — hỗ trợ khách liên hệ (có thể null). */
+	String staffPhone;
 	int branchId;
 	String branchName;
 	long vehicleId;

@@ -957,6 +957,12 @@ public class PaymentApplicationService {
 		}
 	}
 
+	// VNPay error code vinh vien — retry cung khong thanh cong
+	// 02 = TMNCode khong hop le, 03 = du lieu sai, 91 = giao dich khong ton tai
+	private boolean isVnpayPermanentError(String responseCode) {
+		return java.util.Set.of("02", "03", "91").contains(responseCode);
+	}
+
 	// Goi ZaloPay Refund API de hoan tien coc
 	private boolean refundDepositZaloPay(Deposit d) {
 		// gatewayOrderUrl = zp_trans_id (ma giao dich ZaloPay)

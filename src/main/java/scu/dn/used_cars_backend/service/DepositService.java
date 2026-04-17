@@ -423,6 +423,28 @@ public class DepositService {
 		finalizeDepositCancellation(d);
 	}
 
+	// Cho phep manager/admin danh dau thu cong deposit la "Da hoan coc"
+	// Su dung khi gateway khong ho tro refund tu dong (sandbox) hoac da hoan tien ngoai he thong
+	@Transactional(rollbackFor = Exception.class)
+	public void markRefundedManually(long actorUserId, String jwtRole, long depositId) {
+		if (ROLE_CUSTOMER.equals(jwtRole)) {
+			throw new BusinessException(ErrorCode.DEPOSIT_ACCESS_DENIED, "Khach hang khong co quyen thao tac nay.");
+		}
+		Deposit d = depositRepository.findById(depositId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.DEPOSIT_NOT_FOUND, "Khong tim thay coc."));
+		if (!"RefundPending".equals(d.getStatus()) && !"RefundFailed".equals(d.getStatus())) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+					"Chi co the danh dau hoan coc cho deposit dang RefundPending hoac RefundFailed.");
+		}
+		Instant now = Instant.now();
+		String audit = "MANUAL_REFUND|by=" + actorUserId + "|at=" + now;
+		String n = d.getNotes() != null ? d.getNotes() + " | " : "";
+		d.setNotes(n + audit);
+		d.setStatus("Refunded");
+		depositRepository.save(d);
+		log.info("Deposit {} danh dau Refunded thu cong boi user {}.", depositId, actorUserId);
+	}
+
 	@Transactional(rollbackFor = Exception.class)
 	public void syncOpenDepositsWhenVehicleSetAvailable(long vehicleId) {
 		long confirmed = depositRepository.countByVehicleIdAndStatusIn(vehicleId, List.of("Confirmed"));

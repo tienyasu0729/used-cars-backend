@@ -102,4 +102,13 @@ public class DepositController {
 		depositService.confirm(uid, role, id);
 		return ResponseEntity.ok(ApiResponse.success(null));
 	}
+
+	@PatchMapping("/{id}/mark-refunded")
+	@PreAuthorize("hasAnyRole('ADMIN','BRANCHMANAGER','SALESSTAFF')")
+	public ResponseEntity<ApiResponse<Void>> markRefunded(@PathVariable long id, Authentication auth) {
+		long uid = AuthenticationDetailsUtils.requireUserId(auth);
+		String role = JwtRoleNames.primaryRole(auth);
+		depositService.markRefundedManually(uid, role, id);
+		return ResponseEntity.ok(ApiResponse.success(null));
+	}
 }

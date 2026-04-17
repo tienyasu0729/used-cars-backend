@@ -25,6 +25,7 @@ public class DepositRefundRetryScheduler {
 	private static final Logger log = LoggerFactory.getLogger(DepositRefundRetryScheduler.class);
 	private static final int MAX_RETRY = 10;
 	private static final String RETRY_PREFIX = "[refund-retry:";
+	private static final String NO_RETRY_TAG = "[refund-no-retry]";
 
 	private final DepositRepository depositRepository;
 	private final PaymentApplicationService paymentApplicationService;
@@ -52,8 +53,15 @@ public class DepositRefundRetryScheduler {
 
 	@Transactional
 	protected void processOne(Deposit d) {
-		// B1: Dem so lan retry tu notes
-		int retryCount = parseRetryCount(d.getNotes());
+		// B1: Kiem tra deposit da bi danh dau loi vinh vien (VNPay: du lieu sai, giao dich khong ton tai...)
+		String notes = d.getNotes();
+		if (notes != null && notes.contains(NO_RETRY_TAG)) {
+			log.info("Deposit {} bi loi vinh vien (gateway tu choi), bo qua retry.", d.getId());
+			return;
+		}
+
+		// B2: Dem so lan retry tu notes
+		int retryCount = parseRetryCount(notes);
 		if (retryCount >= MAX_RETRY) {
 			return;
 		}

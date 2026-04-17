@@ -226,4 +226,20 @@ public interface DepositRepository extends JpaRepository<Deposit, Long> {
 			@Param("fromInclusive") Instant fromInclusive,
 			@Param("toExclusive") Instant toExclusive,
 			@Param("branchIds") Collection<Integer> branchIds);
+
+	// Tim deposit RefundPending/RefundFailed co don hang da huy trong cua so thoi gian hop le
+	// minTime = now - 15 phut (don hang phai huy >= 15 phut truoc)
+	// maxTime = now - 3 ngay (don hang huy > 3 ngay thi bo qua)
+	@Query("""
+			select d from Deposit d, SalesOrder o
+			where d.orderId = o.id
+			  and d.status in ('RefundPending', 'RefundFailed')
+			  and o.status = 'Cancelled'
+			  and o.updatedAt < :minTime
+			  and o.updatedAt >= :maxTime
+			order by o.updatedAt asc
+			""")
+	List<Deposit> findRefundEligibleByOrderCancelTime(
+			@Param("minTime") Instant minTime,
+			@Param("maxTime") Instant maxTime);
 }

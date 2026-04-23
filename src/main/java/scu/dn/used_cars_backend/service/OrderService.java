@@ -58,9 +58,13 @@ public class OrderService {
 	private final EmailNotificationService emailNotificationService;
 	private final scu.dn.used_cars_backend.service.payment.PaymentApplicationService paymentApplicationService;
 	private final AuditLogWriter auditLogWriter;
+	private final ShowroomCustomerService showroomCustomerService;
 
 	@Transactional
 	public CreateOrderResponse create(long actorUserId, String jwtRole, CreateOrderRequest req) {
+		// B0: Resolve customerId (XOR: customerId hoặc showroomCustomer)
+		long customerId = resolveCustomerId(req);
+
 		// B1: lock xe (FOR UPDATE) + check ton tai + check quyen chi nhanh
 		Vehicle v = vehicleRepository.findByIdAndDeletedFalseForUpdate(req.getVehicleId())
 				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
@@ -73,7 +77,6 @@ public class OrderService {
 		}
 
 		// B3: CHAN "1 xe - 1 order active" (Rule 3)
-		// Neu xe da co don Pending/Processing -> reject, khong cho tao don moi
 		long activeOrderCount = salesOrderRepository.countByVehicleIdAndStatusIn(
 				v.getId(), List.of("Pending", "Processing"));
 		if (activeOrderCount > 0) {
@@ -82,16 +85,14 @@ public class OrderService {
 		}
 
 		// B4: CHONG BAN SAI CHU (Rule 2 - deposit ownership)
-		// Neu xe dang co coc active cua khach nao -> chi khach do moi duoc mua
 		List<Deposit> activeDeposits = depositRepository.findByVehicleIdAndStatusIn(
 				v.getId(), List.of("Confirmed", "AwaitingPayment", "Pending"));
 		if (!activeDeposits.isEmpty()) {
 			Deposit owner = activeDeposits.get(0);
-			if (owner.getCustomerId() != req.getCustomerId()) {
+			if (owner.getCustomerId() != customerId) {
 				throw new BusinessException(ErrorCode.DEPOSIT_OWNER_MISMATCH,
 						"Xe đang được khách khác đặt cọc, không thể bán cho khách này.");
 			}
-			// Xe da co coc cua dung khach -> request BUOC phai di kem depositId
 			if (req.getDepositId() == null) {
 				throw new BusinessException(ErrorCode.DEPOSIT_REQUIRED,
 						"Xe đã có phiếu cọc — vui lòng chọn phiếu cọc tương ứng khi tạo đơn.");
@@ -99,7 +100,7 @@ public class OrderService {
 		}
 
 		// B5: check khach hang ton tai
-		userRepository.findActiveByIdWithRoles(req.getCustomerId())
+		userRepository.findActiveByIdWithRoles(customerId)
 				.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "Không tìm thấy khách hàng."));
 
 		// B6: neu co depositId -> lock coc va validate ky
@@ -109,7 +110,7 @@ public class OrderService {
 			// Lock FOR UPDATE de tranh race condition (2 luong cung convert 1 coc)
 			dep = depositRepository.findByIdForUpdate(req.getDepositId())
 					.orElseThrow(() -> new BusinessException(ErrorCode.DEPOSIT_NOT_FOUND, "Không tìm thấy cọc."));
-			if (dep.getCustomerId() != req.getCustomerId() || !dep.getVehicleId().equals(req.getVehicleId())) {
+			if (dep.getCustomerId() != customerId || !dep.getVehicleId().equals(req.getVehicleId())) {
 				throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Cọc không khớp khách hoặc xe.");
 			}
 			if (!"Confirmed".equals(dep.getStatus())) {
@@ -126,7 +127,7 @@ public class OrderService {
 		String num = nextOrderNumber();
 		SalesOrder o = new SalesOrder();
 		o.setOrderNumber(num);
-		o.setCustomerId(req.getCustomerId());
+		o.setCustomerId(customerId);
 		o.setStaffId(actorUserId);
 		o.setBranch(v.getBranch());
 		o.setVehicle(v);
@@ -151,7 +152,7 @@ public class OrderService {
 		// Tranh double-count voi row Deposit da co.
 
 		// Gui email xac nhan don hang cho khach
-		User customer = userRepository.findById(req.getCustomerId()).orElse(null);
+		User customer = userRepository.findById(customerId).orElse(null);
 		if (customer != null) {
 			emailNotificationService.sendOrderCreatedEmailAsync(o, v, customer);
 		}
@@ -159,7 +160,7 @@ public class OrderService {
 		String vehicleLabel = (v.getTitle() != null && !v.getTitle().isBlank())
 				? v.getTitle() : (v.getCategory() != null ? v.getCategory().getName() : "xe");
 		inAppNotificationService.createNotification(
-				req.getCustomerId(), "order_created",
+				customerId, "order_created",
 				"Đơn hàng của bạn đã được tạo",
 				"Đơn hàng #" + num + " cho " + vehicleLabel + " đã được tạo.",
 				"/dashboard/orders");
@@ -277,6 +278,7 @@ public class OrderService {
 		if (!"Processing".equals(o.getStatus())) {
 			throw new BusinessException(ErrorCode.ORDER_INVALID_STATUS_TRANSITION, "Chỉ đơn Đang xử lý mới xác nhận bán.");
 		}
+		BigDecimal remainingSnapshot = o.getRemainingAmount();
 		o.setStatus("Completed");
 		o.setRemainingAmount(BigDecimal.ZERO);
 		salesOrderRepository.save(o);
@@ -290,6 +292,10 @@ public class OrderService {
 		vehicleService.evictPublicVehicleCaches(v.getId());
 		inAppNotificationService.createNotification(o.getCustomerId(), "order", "Xe đã được bàn giao",
 				"Đơn hàng đã hoàn tất — xe đã được bàn giao thành công.", "/dashboard/orders");
+
+		userRepository.findById(o.getCustomerId()).ifPresent(customer ->
+				emailNotificationService.sendOrderPurchaseCompletedEmailAsync(
+						o, v, o.getBranch(), customer, remainingSnapshot));
 	}
 
 	@Transactional
@@ -549,5 +555,18 @@ public class OrderService {
 				"AUTO_TIMEOUT_CANCEL /api/v1/orders/" + orderId,
 				"Auto cancel don Pending khong coc qua han (orderNumber=" + o.getOrderNumber() + ")",
 				null);
+	}
+
+	private long resolveCustomerId(CreateOrderRequest req) {
+		boolean hasCustomerId = req.getCustomerId() != null;
+		boolean hasShowroom = req.getShowroomCustomer() != null;
+		if (hasCustomerId == hasShowroom) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+					"Phải cung cấp customerId hoặc showroomCustomer (không cả hai, không bỏ trống).");
+		}
+		if (hasShowroom) {
+			return showroomCustomerService.findOrCreate(req.getShowroomCustomer());
+		}
+		return req.getCustomerId();
 	}
 }

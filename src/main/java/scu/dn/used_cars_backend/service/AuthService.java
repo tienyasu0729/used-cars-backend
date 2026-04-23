@@ -127,7 +127,22 @@ public class AuthService {
 	@Transactional
 	public RegisterResponse register(RegisterRequest request) {
 		String email = request.getEmail().trim().toLowerCase();
-		if (userRepository.existsByEmailIgnoreCaseAndDeletedFalse(email)) {
+		Optional<User> existingOpt = userRepository.findActiveByEmailWithRoles(email);
+		if (existingOpt.isPresent()) {
+			User existing = existingOpt.get();
+			if (isClaimableShowroomUser(existing)) {
+				existing.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+				existing.setAuthProvider("local");
+				existing.setPasswordChangeRequired(false);
+				if (request.getName() != null && !request.getName().isBlank()) {
+					existing.setName(request.getName().trim());
+				}
+				if (request.getPhone() != null && !request.getPhone().isBlank()) {
+					existing.setPhone(request.getPhone().trim());
+				}
+				userRepository.save(existing);
+				return new RegisterResponse("Tài khoản đã được kích hoạt từ thông tin tại cửa hàng. Vui lòng đăng nhập.");
+			}
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Email đã được sử dụng.");
 		}
 		Role customerRole = roleRepository.findByName(CUSTOMER_ROLE)
@@ -147,6 +162,16 @@ public class AuthService {
 		user.getUserRoles().add(link);
 		userRepository.save(user);
 		return new RegisterResponse("Tài khoản đã tạo. Vui lòng kiểm tra email xác thực.");
+	}
+
+	/**
+	 * User showroom: authProvider="showroom", chưa có password, không phải Google OAuth.
+	 */
+	private boolean isClaimableShowroomUser(User user) {
+		if (user.getPasswordHash() != null) return false;
+		if (user.getProviderId() != null) return false;
+		String provider = user.getAuthProvider();
+		return "showroom".equalsIgnoreCase(provider);
 	}
 
 	// ===================== ĐĂNG NHẬP BẰNG GOOGLE =====================
@@ -199,9 +224,12 @@ public class AuthService {
 				throw new BusinessException(ErrorCode.ACCOUNT_SUSPENDED, "Tài khoản bị khóa.");
 			}
 
-			// Cập nhật providerId để link Google (giữ nguyên authProvider nếu là "local")
+			// Link Google vào account (showroom hoặc local → cập nhật providerId + authProvider nếu cần)
 			if (user.getProviderId() == null || user.getProviderId().isBlank()) {
 				user.setProviderId(googleSub);
+			}
+			if ("showroom".equalsIgnoreCase(user.getAuthProvider())) {
+				user.setAuthProvider("google");
 			}
 			// Cập nhật avatar nếu user chưa có
 			if ((user.getAvatarUrl() == null || user.getAvatarUrl().isBlank()) && picture != null) {

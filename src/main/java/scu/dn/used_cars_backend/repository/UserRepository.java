@@ -146,4 +146,18 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 			where r.name = 'Admin' and u.deleted = false and lower(u.status) = 'active'
 			""")
 	List<Long> findActiveAdminUserIds();
+
+	/**
+	 * Tìm Customer active theo email HOẶC phone (showroom flow).
+	 * Trả về danh sách để caller xử lý trường hợp ambiguous (>1 user).
+	 */
+	@EntityGraph(attributePaths = { "userRoles", "userRoles.role" })
+	@Query("""
+			select distinct u from User u
+			join u.userRoles ur
+			join ur.role r
+			where r.name = 'Customer' and u.deleted = false and lower(u.status) = 'active'
+			and (lower(u.email) = lower(:email) or lower(u.phone) = lower(:phone))
+			""")
+	List<User> findActiveCustomersByEmailOrPhone(@Param("email") String email, @Param("phone") String phone);
 }

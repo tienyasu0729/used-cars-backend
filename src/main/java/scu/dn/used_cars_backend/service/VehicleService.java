@@ -882,6 +882,7 @@ public class VehicleService {
 		dto.setStatus(v.getStatus());
 		dto.setDeleted(v.isDeleted());
 		dto.setPrimaryImageUrl(pickPrimaryImageUrl(v));
+		dto.setUpdatedAt(v.getUpdatedAt());
 		return dto;
 	}
 

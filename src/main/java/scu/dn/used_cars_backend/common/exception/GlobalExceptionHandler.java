@@ -241,6 +241,7 @@ public class GlobalExceptionHandler {
 			case CHAT_NOT_FOUND -> "Không tìm thấy hội thoại hoặc tin nhắn chat.";
 			case CHAT_ACCESS_DENIED -> "Không có quyền truy cập cuộc trò chuyện này.";
 			case GOOGLE_AUTH_FAILED -> "Xác thực Google không thành công.";
+			case CUSTOMER_IDENTITY_AMBIGUOUS -> "Tìm thấy nhiều khách hàng khớp email/SĐT — vui lòng kiểm tra với Admin.";
 		};
 	}
 }

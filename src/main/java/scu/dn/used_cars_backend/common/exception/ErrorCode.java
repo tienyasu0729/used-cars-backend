@@ -111,7 +111,10 @@ public enum ErrorCode {
 	CONSULTATION_ACCESS_DENIED(HttpStatus.FORBIDDEN, "CONSULTATION_ACCESS_DENIED"),
 
 	CHAT_NOT_FOUND(HttpStatus.NOT_FOUND, "CHAT_NOT_FOUND"),
-	CHAT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "CHAT_ACCESS_DENIED");
+	CHAT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "CHAT_ACCESS_DENIED"),
+
+	/** Tìm thấy nhiều user khớp email/phone — staff cần kiểm tra với admin. */
+	CUSTOMER_IDENTITY_AMBIGUOUS(HttpStatus.CONFLICT, "CUSTOMER_IDENTITY_AMBIGUOUS");
 
 	private final HttpStatus httpStatus;
 	private final String code;

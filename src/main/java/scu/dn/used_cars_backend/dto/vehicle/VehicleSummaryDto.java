@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 
 @Data
 @Builder
@@ -34,5 +35,6 @@ public class VehicleSummaryDto {
 	/** true = đã ẩn khỏi trang công khai (is_deleted), vẫn hiện trong quản lý chi nhánh */
 	private boolean deleted;
 	private String primaryImageUrl;
+	private Instant updatedAt;
 
 }

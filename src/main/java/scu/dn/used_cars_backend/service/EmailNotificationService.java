@@ -19,12 +19,15 @@ import scu.dn.used_cars_backend.repository.SystemConfigRepository;
 import scu.dn.used_cars_backend.repository.UserRepository;
 import scu.dn.used_cars_backend.service.payment.PaymentGatewayConfigService;
 
+import scu.dn.used_cars_backend.entity.Branch;
 import scu.dn.used_cars_backend.entity.Deposit;
 import scu.dn.used_cars_backend.entity.SalesOrder;
 
 import java.math.BigDecimal;
 import java.text.NumberFormat;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
@@ -386,5 +389,165 @@ public class EmailNotificationService {
 		} catch (Exception e) {
 			log.warn("Gui email link thanh toan that bai cho khach {}: {}", customer.getId(), e.getMessage());
 		}
+	}
+
+	// ===== EMAIL BIÊN LAI MUA XE THÀNH CÔNG =====
+
+	/**
+	 * Gửi email biên lai khi nhân viên xác nhận bán / bàn giao xe (đơn Completed).
+	 * Caller truyền đủ dữ liệu đã load để tránh LazyInitializationException.
+	 */
+	@Async
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public void sendOrderPurchaseCompletedEmailAsync(SalesOrder order, Vehicle vehicle,
+			Branch branch, User customer, BigDecimal remainingBeforeCompleted) {
+		try {
+			sendOrderPurchaseCompletedEmail(order, vehicle, branch, customer, remainingBeforeCompleted);
+		} catch (Exception e) {
+			log.warn("Loi gui email bien lai mua xe (orderId={}): {}", order.getId(), e.getMessage());
+		}
+	}
+
+	private void sendOrderPurchaseCompletedEmail(SalesOrder order, Vehicle vehicle,
+			Branch branch, User customer, BigDecimal remainingBeforeCompleted) {
+		if (customer.getEmail() == null || customer.getEmail().isBlank()) {
+			return;
+		}
+		JavaMailSender sender = javaMailSenderProvider.getIfAvailable();
+		if (sender == null) {
+			log.warn("SMTP chua cau hinh, khong gui duoc email bien lai cho khach {}.", customer.getId());
+			return;
+		}
+		String from = (mailFromProp != null && !mailFromProp.isBlank()) ? mailFromProp : springMailUsername;
+		if (from == null || from.isBlank()) {
+			return;
+		}
+
+		String customerName = esc(customer.getName() != null ? customer.getName() : "Quý khách");
+		String customerEmail = esc(customer.getEmail());
+		String customerPhone = customer.getPhone() != null ? esc(customer.getPhone()) : "—";
+
+		String vehicleName = vehicle.getTitle() != null && !vehicle.getTitle().isBlank()
+				? esc(vehicle.getTitle()) : esc(buildVehicleName(vehicle));
+		String vehicleYear = vehicle.getYear() != null ? String.valueOf(vehicle.getYear()) : "—";
+		String vehicleListingId = vehicle.getListingId() != null ? esc(vehicle.getListingId()) : "";
+
+		String branchName = branch.getName() != null ? esc(branch.getName()) : "—";
+		String branchAddress = branch.getAddress() != null ? esc(branch.getAddress()) : "—";
+		String branchPhone = branch.getPhone() != null ? esc(branch.getPhone()) : "—";
+
+		String totalText = formatPrice(order.getTotalPrice());
+		String depositText = order.getDepositAmount() != null && order.getDepositAmount().compareTo(BigDecimal.ZERO) > 0
+				? formatPrice(order.getDepositAmount()) : "0 VNĐ";
+		String remainingText = remainingBeforeCompleted != null ? formatPrice(remainingBeforeCompleted) : "0 VNĐ";
+		String paymentMethod = order.getPaymentMethod() != null ? esc(order.getPaymentMethod()) : "—";
+		String completedDate = formatInstant(order.getUpdatedAt());
+
+		String frontendBaseUrl = paymentGatewayConfigService.frontendBaseUrl();
+		String orderLink = frontendBaseUrl + "/dashboard/orders";
+
+		String subject = "Biên lai giao dịch — Đơn #" + order.getOrderNumber() + " — BanXeOTô Đà Nẵng";
+
+		String body = "<div style=\"font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; color: #333;\">"
+
+				// Header
+				+ "<div style=\"background: #1A3C6E; padding: 24px; border-radius: 8px 8px 0 0; text-align: center;\">"
+				+ "<h1 style=\"color: #ffffff; margin: 0; font-size: 22px;\">BIÊN LAI GIAO DỊCH</h1>"
+				+ "<p style=\"color: #ffffffcc; margin: 6px 0 0; font-size: 14px;\">BanXeOTô Đà Nẵng</p>"
+				+ "</div>"
+
+				// Mã đơn + ngày
+				+ "<div style=\"background: #f0f4f8; padding: 16px 24px; border-bottom: 1px solid #e2e8f0;\">"
+				+ "<table style=\"width: 100%; font-size: 14px;\">"
+				+ "<tr><td><b>Mã đơn hàng:</b></td><td style=\"text-align: right;\">" + esc(order.getOrderNumber()) + "</td></tr>"
+				+ "<tr><td><b>Ngày hoàn tất:</b></td><td style=\"text-align: right;\">" + completedDate + "</td></tr>"
+				+ "<tr><td><b>Phương thức TT:</b></td><td style=\"text-align: right;\">" + paymentMethod + "</td></tr>"
+				+ "</table>"
+				+ "</div>"
+
+				+ "<div style=\"padding: 24px;\">"
+
+				// Thông tin showroom
+				+ "<h3 style=\"color: #1A3C6E; margin: 0 0 8px; font-size: 15px; border-bottom: 2px solid #1A3C6E; padding-bottom: 4px;\">ĐƠN VỊ BÁN</h3>"
+				+ "<table style=\"width: 100%; font-size: 14px; margin-bottom: 20px;\">"
+				+ "<tr><td style=\"padding: 3px 0;\"><b>Chi nhánh:</b></td><td>" + branchName + "</td></tr>"
+				+ "<tr><td style=\"padding: 3px 0;\"><b>Địa chỉ:</b></td><td>" + branchAddress + "</td></tr>"
+				+ "<tr><td style=\"padding: 3px 0;\"><b>Điện thoại:</b></td><td>" + branchPhone + "</td></tr>"
+				+ "</table>"
+
+				// Thông tin khách hàng
+				+ "<h3 style=\"color: #1A3C6E; margin: 0 0 8px; font-size: 15px; border-bottom: 2px solid #1A3C6E; padding-bottom: 4px;\">KHÁCH HÀNG</h3>"
+				+ "<table style=\"width: 100%; font-size: 14px; margin-bottom: 20px;\">"
+				+ "<tr><td style=\"padding: 3px 0;\"><b>Họ tên:</b></td><td>" + customerName + "</td></tr>"
+				+ "<tr><td style=\"padding: 3px 0;\"><b>Email:</b></td><td>" + customerEmail + "</td></tr>"
+				+ "<tr><td style=\"padding: 3px 0;\"><b>Điện thoại:</b></td><td>" + customerPhone + "</td></tr>"
+				+ "</table>"
+
+				// Thông tin xe
+				+ "<h3 style=\"color: #1A3C6E; margin: 0 0 8px; font-size: 15px; border-bottom: 2px solid #1A3C6E; padding-bottom: 4px;\">THÔNG TIN XE</h3>"
+				+ "<table style=\"width: 100%; font-size: 14px; margin-bottom: 20px;\">"
+				+ "<tr><td style=\"padding: 3px 0;\"><b>Tên xe:</b></td><td>" + vehicleName + "</td></tr>"
+				+ "<tr><td style=\"padding: 3px 0;\"><b>Năm SX:</b></td><td>" + vehicleYear + "</td></tr>"
+				+ (vehicleListingId.isEmpty() ? "" : "<tr><td style=\"padding: 3px 0;\"><b>Mã tin:</b></td><td>" + vehicleListingId + "</td></tr>")
+				+ "</table>"
+
+				// Bảng thanh toán
+				+ "<h3 style=\"color: #1A3C6E; margin: 0 0 8px; font-size: 15px; border-bottom: 2px solid #1A3C6E; padding-bottom: 4px;\">CHI TIẾT THANH TOÁN</h3>"
+				+ "<table style=\"width: 100%; font-size: 14px; border-collapse: collapse; margin-bottom: 8px;\">"
+				+ "<tr><td style=\"padding: 6px 0; border-bottom: 1px solid #eee;\">Giá trị đơn hàng</td>"
+				+ "<td style=\"padding: 6px 0; border-bottom: 1px solid #eee; text-align: right;\">" + totalText + "</td></tr>"
+				+ "<tr><td style=\"padding: 6px 0; border-bottom: 1px solid #eee;\">Tiền đặt cọc</td>"
+				+ "<td style=\"padding: 6px 0; border-bottom: 1px solid #eee; text-align: right;\">- " + depositText + "</td></tr>"
+				+ "<tr><td style=\"padding: 6px 0; border-bottom: 1px solid #eee;\">Còn lại trước bàn giao</td>"
+				+ "<td style=\"padding: 6px 0; border-bottom: 1px solid #eee; text-align: right;\">" + remainingText + "</td></tr>"
+				+ "<tr><td style=\"padding: 8px 0; font-weight: bold; font-size: 15px;\">TỔNG THANH TOÁN</td>"
+				+ "<td style=\"padding: 8px 0; text-align: right; font-weight: bold; font-size: 15px; color: #E8612A;\">"
+				+ totalText + "</td></tr>"
+				+ "</table>"
+
+				+ "</div>"
+
+				// CTA
+				+ "<div style=\"padding: 0 24px 24px; text-align: center;\">"
+				+ "<a href=\"" + orderLink + "\" style=\"display: inline-block; padding: 14px 28px; "
+				+ "background-color: #1A3C6E; color: #ffffff; text-decoration: none; border-radius: 6px; "
+				+ "font-weight: bold;\">Xem đơn hàng của tôi</a>"
+				+ "</div>"
+
+				// Footer
+				+ "<div style=\"background: #f8fafc; padding: 16px 24px; border-radius: 0 0 8px 8px; "
+				+ "border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #94a3b8;\">"
+				+ "<p style=\"margin: 0 0 4px;\">Đây là thông tin tham khảo giao dịch; không thay thế hóa đơn GTGT theo quy định thuế.</p>"
+				+ "<p style=\"margin: 0;\">BanXeOTô Đà Nẵng — Cảm ơn quý khách đã tin tưởng.</p>"
+				+ "</div>"
+
+				+ "</div>";
+
+		try {
+			MimeMessage mm = sender.createMimeMessage();
+			MimeMessageHelper helper = new MimeMessageHelper(mm, false, "UTF-8");
+			helper.setFrom(from);
+			helper.setTo(customer.getEmail());
+			helper.setSubject(subject);
+			helper.setText(body, true);
+			sender.send(mm);
+			log.info("Da gui email bien lai mua xe cho khach {} (orderId={})", customer.getId(), order.getId());
+		} catch (Exception e) {
+			log.warn("Gui email bien lai that bai cho khach {}: {}", customer.getId(), e.getMessage());
+		}
+	}
+
+	private String formatInstant(Instant instant) {
+		if (instant == null) {
+			return "—";
+		}
+		return DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")
+				.withZone(ZoneId.of("Asia/Ho_Chi_Minh"))
+				.format(instant);
+	}
+
+	private static String esc(String s) {
+		if (s == null) return "";
+		return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
 	}
 }

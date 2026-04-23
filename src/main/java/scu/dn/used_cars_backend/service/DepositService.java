@@ -71,6 +71,7 @@ public class DepositService {
 	private final VehicleService vehicleService;
 	private final InAppNotificationService inAppNotificationService;
 	private final EmailNotificationService emailNotificationService;
+	private final ShowroomCustomerService showroomCustomerService;
 
 	@Transactional(rollbackFor = Exception.class)
 	public CreateDepositResponse create(long actorUserId, String jwtRole, CreateDepositRequest req, String clientIp) {
@@ -617,8 +618,14 @@ public class DepositService {
 		if (ROLE_CUSTOMER.equals(jwtRole)) {
 			return actorUserId;
 		}
-		if (req.getCustomerId() == null) {
-			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "customerId là bắt buộc.");
+		boolean hasCustomerId = req.getCustomerId() != null;
+		boolean hasShowroom = req.getShowroomCustomer() != null;
+		if (hasCustomerId == hasShowroom) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+					"Phải cung cấp customerId hoặc showroomCustomer (không cả hai, không bỏ trống).");
+		}
+		if (hasShowroom) {
+			return showroomCustomerService.findOrCreate(req.getShowroomCustomer());
 		}
 		return req.getCustomerId();
 	}

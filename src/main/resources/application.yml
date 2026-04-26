@@ -1,0 +1,127 @@
+spring:
+  application:
+    name: used-cars-backend
+
+  # application-local.yml (gitignored): DB, Redis, JWT, Cloudinary, cổng thanh toán (app.payment), port — xem docs/config/application-local-payment.example.yml.
+  # Có thể ghi đè bằng biến môi trường: DB_URL, DB_USER, DB_PASSWORD, REDIS_*, SERVER_PORT, JWT_*, CLOUDINARY_*.
+  config:
+    import: optional:classpath:application-local.yml
+
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 12MB
+
+  datasource:
+    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+    # JDBC: không dùng "HOST\INSTANCE" (SSMS); dùng host:port để tránh SQL Browser (UDP 1434) timeout/firewall.
+    url: ${DB_URL:}
+    username: ${DB_USER:}
+    password: ${DB_PASSWORD:}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+    open-in-view: false
+    properties:
+      hibernate.type.preferred_instant_jdbc_type: TIMESTAMP
+      hibernate:
+        dialect: org.hibernate.dialect.SQLServerDialect
+        format_sql: true
+
+  data:
+    redis:
+      host: ${REDIS_HOST:}
+      port: ${REDIS_PORT:6379}
+      timeout: 2000ms
+
+  flyway:
+    enabled: false
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    ignore-missing-migrations: true
+
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+
+server:
+  port: ${SERVER_PORT:8080}
+
+app:
+  # Bảo mật bổ sung: CORS (không dùng *), rate limit đăng nhập/đăng ký, whitelist IP webhook (rỗng = không chặn).
+  security:
+    cors:
+      # Ví dụ prod: [ "https://banxe.example.com", "https://www.banxe.example.com" ]
+      # Để trống → mặc định http://localhost:*, 127.0.0.1, [::1] (dev)
+      allowed-origin-patterns: []
+    rate-limit:
+      enabled: true
+      requests-per-minute: 60
+    webhook:
+      vnpay-allow-cidrs: []
+      zalopay-allow-cidrs: []
+
+  mail:
+    from: ${MAIL_FROM:}
+
+  jwt:
+    secret: ${JWT_SECRET:}
+    expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+
+  google:
+    client-id: ${GOOGLE_CLIENT_ID:}
+
+  cloudinary:
+    # Upload ký server-side; đủ 3 giá trị mới bật — xem application-local.yml hoặc CLOUDINARY_*.
+    cloud-name: ${CLOUDINARY_CLOUD_NAME:}
+    api-key: ${CLOUDINARY_API_KEY:}
+    api-secret: ${CLOUDINARY_API_SECRET:}
+
+  cloudinary-docs:
+    # Cloudinary riêng cho tài liệu eKYC (CCCD, bảng lương, PDF...).
+    # Có thể dùng cùng account hoặc tách account riêng tuỳ chính sách bảo mật.
+    cloud-name: ${CLOUDINARY_DOCS_CLOUD_NAME:}
+    api-key: ${CLOUDINARY_DOCS_API_KEY:}
+    api-secret: ${CLOUDINARY_DOCS_API_SECRET:}
+
+  credit-service:
+    # Dịch vụ thẩm định tín dụng — nhận hồ sơ trả góp (tài liệu eKYC) và trả kết quả duyệt/từ chối.
+    url: ${CREDIT_SERVICE_URL:}
+    api-key: ${CREDIT_SERVICE_API_KEY:}
+    secret: ${CREDIT_SERVICE_SECRET:}
+
+  order:
+    # Thoi han (gio) cho don Pending khong coc (depositAmount = 0) truoc khi scheduler tu huy.
+    # Giu xe "ao" qua lau se chan giao dich thuc te -> phai co timeout.
+    pending-timeout-hours: ${ORDER_PENDING_TIMEOUT_HOURS:24}
+
+  payment:
+    frontend-base-url: ${APP_FRONTEND_BASE_URL:}
+    vnpay:
+      tmn-code: ${VNPAY_TMN_CODE:}
+      hash-secret: ${VNPAY_HASH_SECRET:}
+      pay-url: ${VNPAY_PAY_URL:}
+      return-url: ${VNPAY_RETURN_URL:}
+      ipn-url: ${VNPAY_IPN_URL:}
+      merchant-api-url: ${VNPAY_MERCHANT_API_URL:}
+      customer-ip-fallback: ${VNPAY_CUSTOMER_IP_FALLBACK:}
+      order-type: ${VNPAY_ORDER_TYPE:}
+      hmac-algorithm: ${VNPAY_HMAC_ALGORITHM:}
+    zalopay:
+      app-id: ${ZALOPAY_APP_ID:}
+      key1: ${ZALOPAY_KEY1:}
+      key2: ${ZALOPAY_KEY2:}
+      endpoint: ${ZALOPAY_ENDPOINT:}
+      callback-url: ${ZALOPAY_CALLBACK_URL:}

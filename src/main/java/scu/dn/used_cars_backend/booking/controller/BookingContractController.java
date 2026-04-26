@@ -1,0 +1,81 @@
+package scu.dn.used_cars_backend.booking.controller;
+
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import jakarta.servlet.http.HttpServletRequest;
+import scu.dn.used_cars_backend.common.web.HttpServletClientIp;
+import scu.dn.used_cars_backend.booking.dto.CompleteContractRequest;
+import scu.dn.used_cars_backend.booking.dto.ContractPreviewResponse;
+import scu.dn.used_cars_backend.booking.service.BookingContractService;
+import scu.dn.used_cars_backend.common.api.ApiResponse;
+import scu.dn.used_cars_backend.common.exception.BusinessException;
+import scu.dn.used_cars_backend.common.exception.ErrorCode;
+import scu.dn.used_cars_backend.dto.media.CloudinarySignedUploadDto;
+
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/v1/bookings/{bookingId}/contract")
+@RequiredArgsConstructor
+public class BookingContractController {
+
+	private final BookingContractService contractService;
+
+	@GetMapping
+	@PreAuthorize("hasRole('CUSTOMER')")
+	public ResponseEntity<ApiResponse<ContractPreviewResponse>> preview(
+			@PathVariable long bookingId, Authentication auth) {
+		long userId = requireUserId(auth);
+		return ResponseEntity.ok(ApiResponse.success(contractService.getContractPreview(bookingId, userId)));
+	}
+
+	@PostMapping("/signature-urls")
+	@PreAuthorize("hasRole('CUSTOMER')")
+	public ResponseEntity<ApiResponse<Map<String, CloudinarySignedUploadDto>>> signatureUrls(
+			@PathVariable long bookingId, Authentication auth) {
+		long userId = requireUserId(auth);
+		return ResponseEntity.ok(ApiResponse.success(contractService.getSignatureUploadUrls(bookingId, userId)));
+	}
+
+	@PostMapping("/complete")
+	@PreAuthorize("hasRole('CUSTOMER')")
+	public ResponseEntity<ApiResponse<ContractPreviewResponse>> complete(
+			@PathVariable long bookingId,
+			@Valid @RequestBody CompleteContractRequest request,
+			Authentication auth,
+			HttpServletRequest httpRequest) {
+		long userId = requireUserId(auth);
+		String ip = HttpServletClientIp.resolve(httpRequest);
+		return ResponseEntity.ok(ApiResponse.success(contractService.completeContract(bookingId, userId, request, ip)));
+	}
+
+	@GetMapping("/pdf")
+	@PreAuthorize("hasRole('CUSTOMER')")
+	public ResponseEntity<byte[]> downloadPdf(@PathVariable long bookingId, Authentication auth) {
+		long userId = requireUserId(auth);
+		byte[] pdf = contractService.generateContractPdf(bookingId, userId);
+		return ResponseEntity.ok()
+				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=contract_" + bookingId + ".pdf")
+				.contentType(MediaType.APPLICATION_PDF)
+				.body(pdf);
+	}
+
+	private static long requireUserId(Authentication authentication) {
+		if (authentication == null || !(authentication.getDetails() instanceof Long userId)) {
+			throw new BusinessException(ErrorCode.UNAUTHORIZED, "Yêu cầu đăng nhập.");
+		}
+		return userId;
+	}
+}

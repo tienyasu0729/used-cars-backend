@@ -1,0 +1,253 @@
+package scu.dn.used_cars_backend.repository;
+
+import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import scu.dn.used_cars_backend.entity.Deposit;
+
+import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
+
+public interface DepositRepository extends JpaRepository<Deposit, Long> {
+
+	Optional<Deposit> findByOrderId(long orderId);
+
+	// Lock FOR UPDATE de tranh race condition khi convert coc thanh don hang.
+	// Dung trong OrderService.create thay cho findById.
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select d from Deposit d where d.id = :id")
+	Optional<Deposit> findByIdForUpdate(@Param("id") Long id);
+
+	Optional<Deposit> findByGatewayTxnRef(String gatewayTxnRef);
+
+	List<Deposit> findByCustomerIdOrderByCreatedAtDesc(Long customerId);
+
+	long countByVehicleIdAndStatusIn(long vehicleId, List<String> statuses);
+
+	@Query("""
+			select d.vehicleId, count(d) from Deposit d
+			where d.vehicleId in :ids
+			and d.status in ('Pending', 'Confirmed', 'AwaitingPayment')
+			group by d.vehicleId
+			""")
+	List<Object[]> countActiveSalesHoldsGrouped(@Param("ids") List<Long> ids);
+
+	List<Deposit> findByVehicleIdAndStatusIn(long vehicleId, Collection<String> statuses);
+
+	@Query("""
+			select d from Deposit d
+			where d.customerId = :customerId
+			and (:status is null or d.status = :status)
+			order by d.createdAt desc
+			""")
+	Page<Deposit> pageForCustomer(@Param("customerId") long customerId, @Param("status") String status, Pageable pageable);
+
+	@Query("""
+			select d from Deposit d, Vehicle v
+			where d.vehicleId = v.id and v.branch.id = :branchId and v.deleted = false
+			and (:status is null or d.status = :status)
+			order by d.createdAt desc
+			""")
+	Page<Deposit> pageForBranch(@Param("branchId") int branchId, @Param("status") String status, Pageable pageable);
+
+	@Query("""
+			select d from Deposit d
+			where (:status is null or d.status = :status)
+			order by d.createdAt desc
+			""")
+	Page<Deposit> pageAll(@Param("status") String status, Pageable pageable);
+
+	@Query("""
+			select d from Deposit d
+			where d.customerId = :customerId
+			and (:status is null or d.status = :status)
+			and not (d.status = 'Cancelled' and d.paymentGateway is not null
+			         and d.notes like '%thanh toan khong thanh cong%')
+			order by d.createdAt desc
+			""")
+	Page<Deposit> pageForCustomerClean(@Param("customerId") long customerId, @Param("status") String status,
+			Pageable pageable);
+
+	@Query("""
+			select d from Deposit d
+			where d.customerId = :customerId
+			and (:status is null or d.status = :status)
+			order by d.createdAt desc
+			""")
+	Page<Deposit> pageForCustomerVisible(@Param("customerId") long customerId, @Param("status") String status,
+			Pageable pageable);
+
+	long countByCustomerIdAndStatusIn(long customerId, List<String> statuses);
+
+	// Chỉ AwaitingPayment: chờ user thanh toán trên cổng. Pending sau khi đã trả VNPay/Zalo là cọc đã thanh toán
+	// (chờ showroom xác nhận) — không được hủy theo timeout tạo cọc.
+	@Query("""
+			select d.id from Deposit d
+			where d.status = 'AwaitingPayment'
+			and lower(trim(coalesce(d.paymentGateway, ''))) in ('vnpay', 'zalopay')
+			and d.createdAt < :cutoff
+			""")
+	List<Long> findPendingOnlineDepositIdsCreatedBefore(@Param("cutoff") Instant cutoff);
+
+	@Query(value = """
+			select d from Deposit d
+			where (:statusBucket is null
+				or (:statusBucket = 'COMPLETED' and d.status in ('Confirmed','Pending'))
+				or (:statusBucket = 'PENDING' and d.status = 'AwaitingPayment')
+				or (:statusBucket = 'CANCELLED' and d.status = 'Cancelled'))
+			and (:fromInclusive is null or d.createdAt >= :fromInclusive)
+			and (:toExclusive is null or d.createdAt < :toExclusive)
+			and (:gateway is null
+				or (lower(:gateway) = 'cash' and lower(trim(d.paymentMethod)) = 'cash')
+				or (lower(:gateway) = 'zalopay' and (lower(trim(coalesce(d.paymentGateway,''))) = 'zalopay' or lower(trim(d.paymentMethod)) = 'zalopay'))
+				or (lower(:gateway) = 'vnpay' and (lower(trim(coalesce(d.paymentGateway,''))) = 'vnpay' or lower(trim(d.paymentMethod)) = 'vnpay')))
+			order by d.createdAt desc
+			""",
+			countQuery = """
+			select count(d) from Deposit d
+			where (:statusBucket is null
+				or (:statusBucket = 'COMPLETED' and d.status in ('Confirmed','Pending'))
+				or (:statusBucket = 'PENDING' and d.status = 'AwaitingPayment')
+				or (:statusBucket = 'CANCELLED' and d.status = 'Cancelled'))
+			and (:fromInclusive is null or d.createdAt >= :fromInclusive)
+			and (:toExclusive is null or d.createdAt < :toExclusive)
+			and (:gateway is null
+				or (lower(:gateway) = 'cash' and lower(trim(d.paymentMethod)) = 'cash')
+				or (lower(:gateway) = 'zalopay' and (lower(trim(coalesce(d.paymentGateway,''))) = 'zalopay' or lower(trim(d.paymentMethod)) = 'zalopay'))
+				or (lower(:gateway) = 'vnpay' and (lower(trim(coalesce(d.paymentGateway,''))) = 'vnpay' or lower(trim(d.paymentMethod)) = 'vnpay')))
+			""")
+	Page<Deposit> pageAllForTransactionHistory(
+			@Param("statusBucket") String statusBucket,
+			@Param("fromInclusive") Instant fromInclusive,
+			@Param("toExclusive") Instant toExclusive,
+			@Param("gateway") String gateway,
+			Pageable pageable);
+
+	@Query(value = """
+			select d from Deposit d, Vehicle v
+			where d.vehicleId = v.id and v.deleted = false and v.branch.id = :branchId
+			and (:statusBucket is null
+				or (:statusBucket = 'COMPLETED' and d.status in ('Confirmed','Pending'))
+				or (:statusBucket = 'PENDING' and d.status = 'AwaitingPayment')
+				or (:statusBucket = 'CANCELLED' and d.status = 'Cancelled'))
+			and (:fromInclusive is null or d.createdAt >= :fromInclusive)
+			and (:toExclusive is null or d.createdAt < :toExclusive)
+			and (:gateway is null
+				or (lower(:gateway) = 'cash' and lower(trim(d.paymentMethod)) = 'cash')
+				or (lower(:gateway) = 'zalopay' and (lower(trim(coalesce(d.paymentGateway,''))) = 'zalopay' or lower(trim(d.paymentMethod)) = 'zalopay'))
+				or (lower(:gateway) = 'vnpay' and (lower(trim(coalesce(d.paymentGateway,''))) = 'vnpay' or lower(trim(d.paymentMethod)) = 'vnpay')))
+			order by d.createdAt desc
+			""",
+			countQuery = """
+			select count(d) from Deposit d, Vehicle v
+			where d.vehicleId = v.id and v.deleted = false and v.branch.id = :branchId
+			and (:statusBucket is null
+				or (:statusBucket = 'COMPLETED' and d.status in ('Confirmed','Pending'))
+				or (:statusBucket = 'PENDING' and d.status = 'AwaitingPayment')
+				or (:statusBucket = 'CANCELLED' and d.status = 'Cancelled'))
+			and (:fromInclusive is null or d.createdAt >= :fromInclusive)
+			and (:toExclusive is null or d.createdAt < :toExclusive)
+			and (:gateway is null
+				or (lower(:gateway) = 'cash' and lower(trim(d.paymentMethod)) = 'cash')
+				or (lower(:gateway) = 'zalopay' and (lower(trim(coalesce(d.paymentGateway,''))) = 'zalopay' or lower(trim(d.paymentMethod)) = 'zalopay'))
+				or (lower(:gateway) = 'vnpay' and (lower(trim(coalesce(d.paymentGateway,''))) = 'vnpay' or lower(trim(d.paymentMethod)) = 'vnpay')))
+			""")
+	Page<Deposit> pageForBranchForTransactionHistory(
+			@Param("branchId") int branchId,
+			@Param("statusBucket") String statusBucket,
+			@Param("fromInclusive") Instant fromInclusive,
+			@Param("toExclusive") Instant toExclusive,
+			@Param("gateway") String gateway,
+			Pageable pageable);
+
+	@Query("""
+			select count(d) from Deposit d
+			where (:statusBucket is null
+				or (:statusBucket = 'COMPLETED' and d.status in ('Confirmed','Pending'))
+				or (:statusBucket = 'PENDING' and d.status = 'AwaitingPayment')
+				or (:statusBucket = 'CANCELLED' and d.status = 'Cancelled'))
+			and (:fromInclusive is null or d.createdAt >= :fromInclusive)
+			and (:toExclusive is null or d.createdAt < :toExclusive)
+			and (:gateway is null
+				or (lower(:gateway) = 'cash' and lower(trim(d.paymentMethod)) = 'cash')
+				or (lower(:gateway) = 'zalopay' and (lower(trim(coalesce(d.paymentGateway,''))) = 'zalopay' or lower(trim(d.paymentMethod)) = 'zalopay'))
+				or (lower(:gateway) = 'vnpay' and (lower(trim(coalesce(d.paymentGateway,''))) = 'vnpay' or lower(trim(d.paymentMethod)) = 'vnpay')))
+			""")
+	long countAllForTransactionHistory(
+			@Param("statusBucket") String statusBucket,
+			@Param("fromInclusive") Instant fromInclusive,
+			@Param("toExclusive") Instant toExclusive,
+			@Param("gateway") String gateway);
+
+	@Query("""
+			select count(d) from Deposit d, Vehicle v
+			where d.vehicleId = v.id and v.deleted = false and v.branch.id = :branchId
+			and (:statusBucket is null
+				or (:statusBucket = 'COMPLETED' and d.status in ('Confirmed','Pending'))
+				or (:statusBucket = 'PENDING' and d.status = 'AwaitingPayment')
+				or (:statusBucket = 'CANCELLED' and d.status = 'Cancelled'))
+			and (:fromInclusive is null or d.createdAt >= :fromInclusive)
+			and (:toExclusive is null or d.createdAt < :toExclusive)
+			and (:gateway is null
+				or (lower(:gateway) = 'cash' and lower(trim(d.paymentMethod)) = 'cash')
+				or (lower(:gateway) = 'zalopay' and (lower(trim(coalesce(d.paymentGateway,''))) = 'zalopay' or lower(trim(d.paymentMethod)) = 'zalopay'))
+				or (lower(:gateway) = 'vnpay' and (lower(trim(coalesce(d.paymentGateway,''))) = 'vnpay' or lower(trim(d.paymentMethod)) = 'vnpay')))
+			""")
+	long countForBranchForTransactionHistory(
+			@Param("branchId") int branchId,
+			@Param("statusBucket") String statusBucket,
+			@Param("fromInclusive") Instant fromInclusive,
+			@Param("toExclusive") Instant toExclusive,
+			@Param("gateway") String gateway);
+
+	@Query("""
+			select d from Deposit d
+			where d.status in :statuses
+			order by d.createdAt asc
+			""")
+	List<Deposit> findByStatusIn(@Param("statuses") List<String> statuses);
+
+	@Query("""
+			select d from Deposit d
+			where d.createdAt >= :fromInclusive and d.createdAt < :toExclusive
+			order by d.createdAt desc
+			""")
+	List<Deposit> listForUnifiedByCreatedAtRange(
+			@Param("fromInclusive") Instant fromInclusive,
+			@Param("toExclusive") Instant toExclusive);
+
+	@Query("""
+			select d from Deposit d, Vehicle v
+			where d.vehicleId = v.id and v.deleted = false
+			and v.branch.id in :branchIds
+			and d.createdAt >= :fromInclusive and d.createdAt < :toExclusive
+			order by d.createdAt desc
+			""")
+	List<Deposit> listForUnifiedByCreatedAtRangeAndBranches(
+			@Param("fromInclusive") Instant fromInclusive,
+			@Param("toExclusive") Instant toExclusive,
+			@Param("branchIds") Collection<Integer> branchIds);
+
+	// Tim deposit RefundPending/RefundFailed co don hang da huy trong cua so thoi gian hop le
+	// minTime = now - 15 phut (don hang phai huy >= 15 phut truoc)
+	// maxTime = now - 3 ngay (don hang huy > 3 ngay thi bo qua)
+	@Query("""
+			select d from Deposit d, SalesOrder o
+			where d.orderId = o.id
+			  and d.status in ('RefundPending', 'RefundFailed')
+			  and o.status = 'Cancelled'
+			  and o.updatedAt < :minTime
+			  and o.updatedAt >= :maxTime
+			order by o.updatedAt asc
+			""")
+	List<Deposit> findRefundEligibleByOrderCancelTime(
+			@Param("minTime") Instant minTime,
+			@Param("maxTime") Instant maxTime);
+}

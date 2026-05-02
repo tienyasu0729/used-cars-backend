@@ -111,8 +111,8 @@ public class UserService {
 
 	@Transactional(readOnly = true)
 	public CustomerStatsResponse getCustomerStats(long userId) {
-		// B1: Đếm xe đã lưu
-		long saved = savedVehicleRepository.countByIdUserId(userId);
+		// B1: Đếm xe đã lưu còn hiển thị công khai (loại Hidden/Sold/deleted)
+		long saved = savedVehicleRepository.countVisibleSavedForUser(userId);
 		// B2: Lịch Pending/Confirmed
 		long upcoming = bookingRepository.countUpcomingByCustomerId(userId);
 		long activeDeposits = depositRepository.countByCustomerIdAndStatusIn(userId, List.of("Pending", "Confirmed"));

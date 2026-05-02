@@ -22,6 +22,10 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class SlotAvailabilityService {
+	private static final String REASON_BRANCH_CLOSED = "BRANCH_CLOSED";
+	private static final String REASON_OUTSIDE_WORKING_HOURS = "OUTSIDE_WORKING_HOURS";
+	private static final String REASON_FULL = "FULL";
+	private static final String REASON_VEHICLE_CONFLICT = "VEHICLE_CONFLICT";
 
 	private final BookingSlotRepository bookingSlotRepository;
 	private final BookingRepository bookingRepository;
@@ -42,26 +46,60 @@ public class SlotAvailabilityService {
 			}
 		}
 		List<BookingSlot> templates = bookingSlotRepository.findByBranch_IdAndActiveTrueOrderBySlotTimeAsc(branchId);
+		boolean isClosedDay = openingHoursProvider.isBranchClosedOnDate(branchId, date);
 		return templates.stream()
-				.filter(slot -> openingHoursProvider.isWithinWorkingHours(branchId, date, slot.getSlotTime()))
 				.map(slot -> {
+					int max = slot.getMaxBookings() != null ? slot.getMaxBookings() : 0;
+					boolean withinHours = openingHoursProvider.isWithinWorkingHours(branchId, date, slot.getSlotTime());
+					if (isClosedDay) {
+						return AvailableSlotResponse.builder()
+								.slotTime(slot.getSlotTime())
+								.availableCount(0)
+								.maxBookings(max)
+								.bookable(false)
+								.unavailableReason(REASON_BRANCH_CLOSED)
+								.build();
+					}
+					if (!withinHours) {
+						return AvailableSlotResponse.builder()
+								.slotTime(slot.getSlotTime())
+								.availableCount(0)
+								.maxBookings(max)
+								.bookable(false)
+								.unavailableReason(REASON_OUTSIDE_WORKING_HOURS)
+								.build();
+					}
+
 					long taken = bookingRepository.countAtBranchSlot(branchId, date, slot.getSlotTime(),
 							BookingSlotCounting.BRANCH_OCCUPIED_STATUSES);
-					int max = slot.getMaxBookings() != null ? slot.getMaxBookings() : 0;
 					int branchAvailable = (int) Math.max(0, max - taken);
-					int available;
 					if (vehicleId != null) {
 						long vTaken = bookingRepository.countAtVehicleSlot(vehicleId, date, slot.getSlotTime(),
 								BookingSlotCounting.VEHICLE_TRIPLE_OCCUPIED_STATUSES);
-						available = (branchAvailable <= 0 || vTaken > 0) ? 0 : 1;
+						int available = (branchAvailable <= 0 || vTaken > 0) ? 0 : 1;
+						String reason = null;
+						if (branchAvailable <= 0) {
+							reason = REASON_FULL;
+						}
+						else if (vTaken > 0) {
+							reason = REASON_VEHICLE_CONFLICT;
+						}
+						return AvailableSlotResponse.builder()
+								.slotTime(slot.getSlotTime())
+								.availableCount(available)
+								.maxBookings(max)
+								.bookable(available > 0)
+								.unavailableReason(reason)
+								.build();
 					}
-					else {
-						available = branchAvailable;
-					}
+
+					int available = branchAvailable;
 					return AvailableSlotResponse.builder()
 							.slotTime(slot.getSlotTime())
 							.availableCount(available)
 							.maxBookings(max)
+							.bookable(available > 0)
+							.unavailableReason(available > 0 ? null : REASON_FULL)
 							.build();
 				})
 				.toList();

@@ -12,11 +12,25 @@ import java.util.List;
 
 public interface SavedVehicleRepository extends JpaRepository<SavedVehicle, SavedVehicleId> {
 
-	long countByIdUserId(Long userId);
+	@Query("""
+			select count(sv)
+			from SavedVehicle sv
+			where sv.id.userId = :userId
+			and sv.vehicle.deleted = false
+			and sv.vehicle.status not in ('Hidden', 'Sold', 'Reserved')
+			""")
+	long countVisibleSavedForUser(@Param("userId") Long userId);
 
 	boolean existsByUser_IdAndVehicle_Id(Long userId, Long vehicleId);
 
 	@EntityGraph(attributePaths = { "vehicle", "vehicle.images" })
-	@Query("select sv from SavedVehicle sv where sv.id.userId = :userId order by sv.savedAt desc")
+	@Query("""
+			select sv
+			from SavedVehicle sv
+			where sv.id.userId = :userId
+			and sv.vehicle.deleted = false
+			and sv.vehicle.status not in ('Hidden', 'Sold', 'Reserved')
+			order by sv.savedAt desc
+			""")
 	List<SavedVehicle> findAllSavedForUser(@Param("userId") Long userId);
 }

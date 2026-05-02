@@ -35,6 +35,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 	private static final RequestMatcher PUBLIC_AUTH = new OrRequestMatcher(
 			new AntPathRequestMatcher("/api/v1/auth/login", "POST"),
 			new AntPathRequestMatcher("/api/v1/auth/register", "POST"),
+			new AntPathRequestMatcher("/api/v1/auth/google", "POST"),
 			new AntPathRequestMatcher("/api/v1/auth/forgot-password", "POST"),
 			new AntPathRequestMatcher("/api/v1/auth/reset-password", "POST"));
 
@@ -70,12 +71,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 	private final HttpErrorResponseWriter errorWriter;
 	private final RolePermissionCacheService rolePermissionCacheService;
 
+	private static final RequestMatcher PUBLIC_WEBHOOK = new OrRequestMatcher(
+        new AntPathRequestMatcher("/api/v1/webhook/**"));
+
 	@Override
 	protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
 		if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
 			return true;
 		}
-		return PUBLIC_AUTH.matches(request) || PUBLIC_PAYMENT_GATEWAY.matches(request) || WS_HANDSHAKE.matches(request);
+		return PUBLIC_AUTH.matches(request) || PUBLIC_PAYMENT_GATEWAY.matches(request) || WS_HANDSHAKE.matches(request) || PUBLIC_WEBHOOK.matches(request);
 	}
 
 	@Override

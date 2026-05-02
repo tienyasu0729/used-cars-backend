@@ -35,10 +35,13 @@ public class SaveInstallmentApplicationRequest {
 	private Integer dependentsCount;
 
 	private BigDecimal vehiclePrice;
+	private BigDecimal prepaymentPercent;
 	private BigDecimal prepaymentAmount;
 	private BigDecimal loanAmount;
 	private Integer loanTermMonths;
 	private String repaymentMethod;
+	private String bankCode;
+	private Boolean requestPreDeposit;
 
 	private Boolean agreedTerms;
 	private Boolean agreedPrivacy;

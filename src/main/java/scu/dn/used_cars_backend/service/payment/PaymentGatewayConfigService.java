@@ -72,6 +72,7 @@ public class PaymentGatewayConfigService {
 		PaymentGatewayProperties.Vnpay vn = paymentGatewayProperties.getVnpay();
 		PaymentGatewayProperties.Zalopay zp = paymentGatewayProperties.getZalopay();
 		return switch (key) {
+			case KEY_VNPAY_ENABLED -> String.valueOf(vn.isEnabled());
 			case KEY_VNPAY_PAY_URL -> nonBlankOrNull(vn.getPayUrl());
 			case KEY_VNPAY_RETURN_URL -> nonBlankOrNull(vn.getReturnUrl());
 			case KEY_VNPAY_IPN_URL -> nonBlankOrNull(vn.getIpnUrl());
@@ -79,6 +80,7 @@ public class PaymentGatewayConfigService {
 			case KEY_VNPAY_ORDER_TYPE -> nonBlankOrNull(vn.getOrderType());
 			case KEY_VNPAY_HMAC_ALGORITHM -> nonBlankOrNull(vn.getHmacAlgorithm());
 			case KEY_VNPAY_CUSTOMER_IP_FALLBACK -> nonBlankOrNull(vn.getCustomerIpFallback());
+			case KEY_ZALO_ENABLED -> String.valueOf(zp.isEnabled());
 			case KEY_ZALO_ENDPOINT -> nonBlankOrNull(zp.getEndpoint());
 			case KEY_ZALO_CALLBACK_URL -> nonBlankOrNull(zp.getCallbackUrl());
 			default -> null;
@@ -131,7 +133,7 @@ public class PaymentGatewayConfigService {
 
 	@Transactional(readOnly = true)
 	public boolean isTruthy(String key) {
-		String v = getOptionalFromDb(key);
+		String v = getOptional(key);
 		return "true".equalsIgnoreCase(v) || "1".equals(v);
 	}
 

@@ -25,6 +25,8 @@ import scu.dn.used_cars_backend.dto.vehicle.CreateMaintenanceRequest;
 import scu.dn.used_cars_backend.dto.vehicle.MaintenanceHistoryResponse;
 import scu.dn.used_cars_backend.service.MaintenanceService;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/v1/manager/vehicles/{vehicleId}/maintenance")
 @RequiredArgsConstructor
@@ -55,6 +57,16 @@ public class MaintenanceController {
 		boolean admin = isAdmin(authentication);
 		MaintenanceHistoryResponse resp = maintenanceService
 				.createMaintenanceRecord(vehicleId, request, userId, admin);
+		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(resp));
+	}
+
+	@PostMapping("/bulk")
+	public ResponseEntity<ApiResponse<List<MaintenanceHistoryResponse>>> createBulk(@PathVariable long vehicleId,
+			@Valid @RequestBody List<CreateMaintenanceRequest> requests, Authentication authentication) {
+		long userId = requireUserId(authentication);
+		boolean admin = isAdmin(authentication);
+		List<MaintenanceHistoryResponse> resp = maintenanceService
+				.createMaintenanceRecordsBulk(vehicleId, requests, userId, admin);
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(resp));
 	}
 

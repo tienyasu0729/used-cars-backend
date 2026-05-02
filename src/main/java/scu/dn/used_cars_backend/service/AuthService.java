@@ -445,7 +445,7 @@ public class AuthService {
 		}
 		if (springMailPassword == null || springMailPassword.isBlank()) {
 			log.warn(
-					"spring.mail.password đang trống — SMTP không xác thực được. Kiểm tra: (1) application-local.yml có App Password; (2) biến môi trường SPRING_MAIL_PASSWORD hoặc MAIL_PASSWORD không đè rỗng lên file cấu hình. userId={}",
+					"spring.mail.password đang trống — SMTP không xác thực được. Kiểm tra: (1) application.yml có App Password; (2) biến môi trường SPRING_MAIL_PASSWORD hoặc MAIL_PASSWORD không đè rỗng lên file cấu hình. userId={}",
 					user.getId());
 			return;
 		}
@@ -455,7 +455,7 @@ public class AuthService {
 		if (isGmail && springMailPassword.length() != 16) {
 			log.warn(
 					"Gmail App Password phải có đúng 16 ký tự nhưng hiện tại có {} ký tự. "
-							+ "Kiểm tra: (1) App Password trong application-local.yml có đầy đủ không (copy thiếu?); "
+							+ "Kiểm tra: (1) App Password trong application.yml có đầy đủ không (copy thiếu?); "
 							+ "(2) biến môi trường MAIL_PASSWORD / SPRING_MAIL_PASSWORD có đang đè giá trị sai không. userId={}",
 					springMailPassword.length(), user.getId());
 		}

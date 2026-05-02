@@ -26,4 +26,6 @@ public class CreateArticleRequest {
 	private Long categoryId;
 
 	private String status = "draft";
+
+	private boolean featured = false;
 }

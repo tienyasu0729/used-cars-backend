@@ -1,12 +1,16 @@
 package scu.dn.used_cars_backend.service;
 
-import lombok.RequiredArgsConstructor;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import lombok.RequiredArgsConstructor;
 import scu.dn.used_cars_backend.booking.entity.Booking;
 import scu.dn.used_cars_backend.booking.repository.BookingRepository;
 import scu.dn.used_cars_backend.common.exception.BusinessException;
@@ -21,10 +25,6 @@ import scu.dn.used_cars_backend.entity.VehicleReview;
 import scu.dn.used_cars_backend.repository.UserRepository;
 import scu.dn.used_cars_backend.repository.VehicleRepository;
 import scu.dn.used_cars_backend.repository.VehicleReviewRepository;
-
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -48,7 +48,8 @@ public class VehicleReviewService {
 				.orElseThrow(() -> new BusinessException(ErrorCode.BOOKING_NOT_FOUND));
 
 		if (!booking.getCustomerId().equals(userId) || !booking.getVehicle().getId().equals(vehicleId)) {
-			throw new BusinessException(ErrorCode.REVIEW_ACCESS_DENIED, "Lịch hẹn không thuộc về bạn hoặc xe này.");
+			throw new BusinessException(ErrorCode.REVIEW_ACCESS_DENIED,
+					"Lịch hẹn không thuộc về bạn hoặc không dành cho xe này.");
 		}
 
 		if (!"Completed".equals(booking.getStatus())) {
@@ -73,8 +74,7 @@ public class VehicleReviewService {
 
 	@Transactional(readOnly = true)
 	public Page<ReviewResponse> getApprovedReviews(Long vehicleId, Pageable pageable) {
-		return reviewRepository.findByVehicleIdAndStatus(vehicleId, "approved", pageable)
-				.map(this::toResponse);
+		return reviewRepository.findByVehicleIdAndStatus(vehicleId, "approved", pageable).map(this::toResponse);
 	}
 
 	@Transactional(readOnly = true)
@@ -91,11 +91,8 @@ public class VehicleReviewService {
 			distribution.put((Integer) row[0], (Long) row[1]);
 		}
 
-		return ReviewSummaryResponse.builder()
-				.averageRating(avg != null ? Math.round(avg * 10.0) / 10.0 : null)
-				.totalReviews(total)
-				.ratingDistribution(distribution)
-				.build();
+		return ReviewSummaryResponse.builder().averageRating(avg != null ? Math.round(avg * 10.0) / 10.0 : null)
+				.totalReviews(total).ratingDistribution(distribution).build();
 	}
 
 	@Transactional(readOnly = true)
@@ -105,6 +102,10 @@ public class VehicleReviewService {
 		}
 		if (reviewRepository.existsByVehicleIdAndReviewerId(vehicleId, userId)) {
 			return CanReviewResponse.builder().canReview(false).reason("Bạn đã đánh giá xe này.").build();
+		}
+		if (!bookingRepository.existsCompletedBookingByCustomerIdAndVehicleId(userId, vehicleId)) {
+			return CanReviewResponse.builder().canReview(false)
+					.reason("Hoàn tất lái thử xe này để có thể gửi đánh giá.").build();
 		}
 		return CanReviewResponse.builder().canReview(true).reason(null).build();
 	}
@@ -129,10 +130,10 @@ public class VehicleReviewService {
 				.orElseThrow(() -> new BusinessException(ErrorCode.REVIEW_NOT_FOUND, "Không tìm thấy đánh giá."));
 
 		switch (action) {
-			case "approve" -> review.setStatus("approved");
-			case "reject" -> review.setStatus("rejected");
-			case "hide" -> review.setStatus("hidden");
-			default -> throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Hành động không hợp lệ: " + action);
+		case "approve" -> review.setStatus("approved");
+		case "reject" -> review.setStatus("rejected");
+		case "hide" -> review.setStatus("hidden");
+		default -> throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Hành động không hợp lệ: " + action);
 		}
 
 		reviewRepository.save(review);
@@ -146,21 +147,16 @@ public class VehicleReviewService {
 		reviewRepository.delete(review);
 	}
 
-	private ReviewResponse toResponse(VehicleReview r) {
-		String name = r.isAnonymous() ? "Ẩn danh" : (r.getReviewer() != null ? r.getReviewer().getName() : null);
-		String avatar = r.isAnonymous() ? null : (r.getReviewer() != null ? r.getReviewer().getAvatarUrl() : null);
+	private ReviewResponse toResponse(VehicleReview review) {
+		String reviewerName = review.isAnonymous() ? "Ẩn danh"
+				: (review.getReviewer() != null ? review.getReviewer().getName() : null);
+		String reviewerAvatar = review.isAnonymous() ? null
+				: (review.getReviewer() != null ? review.getReviewer().getAvatarUrl() : null);
 
-		return ReviewResponse.builder()
-				.id(r.getId())
-				.rating(r.getRating())
-				.comment(r.getComment())
-				.reviewerName(name)
-				.reviewerAvatar(avatar)
-				.anonymous(r.isAnonymous())
-				.status(r.getStatus())
-				.createdAt(r.getCreatedAt())
-				.vehicleId(r.getVehicle() != null ? r.getVehicle().getId() : null)
-				.vehicleTitle(r.getVehicle() != null ? r.getVehicle().getTitle() : null)
-				.build();
+		return ReviewResponse.builder().id(review.getId()).rating(review.getRating()).comment(review.getComment())
+				.reviewerName(reviewerName).reviewerAvatar(reviewerAvatar).anonymous(review.isAnonymous())
+				.status(review.getStatus()).createdAt(review.getCreatedAt())
+				.vehicleId(review.getVehicle() != null ? review.getVehicle().getId() : null)
+				.vehicleTitle(review.getVehicle() != null ? review.getVehicle().getTitle() : null).build();
 	}
 }

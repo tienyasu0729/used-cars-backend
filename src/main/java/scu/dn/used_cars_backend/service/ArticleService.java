@@ -120,6 +120,7 @@ public class ArticleService {
 
 		String status = req.getStatus() != null ? req.getStatus() : "draft";
 		article.setStatus(status);
+		article.setFeatured(req.isFeatured());
 		if ("published".equals(status)) {
 			article.setPublishedAt(Instant.now());
 		}
@@ -166,6 +167,9 @@ public class ArticleService {
 			if ("published".equals(req.getStatus()) && !"published".equals(oldStatus)) {
 				article.setPublishedAt(Instant.now());
 			}
+		}
+		if (req.getFeatured() != null) {
+			article.setFeatured(req.getFeatured());
 		}
 
 		articleRepository.save(article);
@@ -214,6 +218,7 @@ public class ArticleService {
 				.categoryName(a.getCategory() != null ? a.getCategory().getName() : null)
 				.categorySlug(a.getCategory() != null ? a.getCategory().getSlug() : null)
 				.status(a.getStatus())
+				.featured(a.isFeatured())
 				.publishedAt(a.getPublishedAt())
 				.createdAt(a.getCreatedAt())
 				.viewCount(a.getViewCount())
@@ -234,6 +239,7 @@ public class ArticleService {
 				.categorySlug(a.getCategory() != null ? a.getCategory().getSlug() : null)
 				.categoryId(a.getCategory() != null ? a.getCategory().getId() : null)
 				.status(a.getStatus())
+				.featured(a.isFeatured())
 				.publishedAt(a.getPublishedAt())
 				.createdAt(a.getCreatedAt())
 				.updatedAt(a.getUpdatedAt())

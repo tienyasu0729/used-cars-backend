@@ -9,4 +9,5 @@ import java.util.List;
 @Repository
 public interface InstallmentDocumentRepository extends JpaRepository<InstallmentDocument, Long> {
 	List<InstallmentDocument> findByApplicationId(Long applicationId);
+	long countByApplicationIdAndDocumentTypeIgnoreCase(Long applicationId, String documentType);
 }

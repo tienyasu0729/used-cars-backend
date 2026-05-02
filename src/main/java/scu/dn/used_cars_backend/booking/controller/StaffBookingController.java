@@ -4,6 +4,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -19,7 +21,9 @@ import org.springframework.web.bind.annotation.RestController;
 import jakarta.validation.Valid;
 import scu.dn.used_cars_backend.booking.dto.AssignBookingStaffRequest;
 import scu.dn.used_cars_backend.booking.dto.BookingResponse;
+import scu.dn.used_cars_backend.booking.dto.ContractPreviewResponse;
 import scu.dn.used_cars_backend.booking.dto.ScheduleGroupResponse;
+import scu.dn.used_cars_backend.booking.service.BookingContractService;
 import scu.dn.used_cars_backend.booking.service.BookingService;
 import scu.dn.used_cars_backend.common.api.ApiResponse;
 import scu.dn.used_cars_backend.dto.vehicle.PageMetaDto;
@@ -35,6 +39,7 @@ import java.util.List;
 public class StaffBookingController {
 
 	private final BookingService bookingService;
+	private final BookingContractService contractService;
 
 	private static boolean isAdmin(Authentication authentication) {
 		if (authentication == null) {
@@ -82,5 +87,22 @@ public class StaffBookingController {
 		boolean admin = isAdmin(authentication);
 		BookingResponse updated = bookingService.assignStaff(id, body, branchId, userId, admin);
 		return ResponseEntity.ok(ApiResponse.success(updated));
+	}
+
+	@GetMapping("/bookings/{id}/contract")
+	public ResponseEntity<ApiResponse<ContractPreviewResponse>> contractPreview(@PathVariable long id,
+			Authentication authentication) {
+		long userId = AuthenticationDetailsUtils.requireUserId(authentication);
+		return ResponseEntity.ok(ApiResponse.success(contractService.getContractPreviewForStaff(id, userId, isAdmin(authentication))));
+	}
+
+	@GetMapping("/bookings/{id}/contract/pdf")
+	public ResponseEntity<byte[]> contractPdf(@PathVariable long id, Authentication authentication) {
+		long userId = AuthenticationDetailsUtils.requireUserId(authentication);
+		byte[] pdf = contractService.generateContractPdfForStaff(id, userId, isAdmin(authentication));
+		return ResponseEntity.ok()
+				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=contract_" + id + ".pdf")
+				.contentType(MediaType.APPLICATION_PDF)
+				.body(pdf);
 	}
 }

@@ -17,6 +17,7 @@ public class InstallmentApplicationResponse {
 	private Long vehicleId;
 	private String vehicleTitle;
 	private Long depositId;
+	private Long preDepositId;
 	private String bankLoanId;
 
 	private String fullName;
@@ -43,10 +44,13 @@ public class InstallmentApplicationResponse {
 	private Integer dependentsCount;
 
 	private BigDecimal vehiclePrice;
+	private BigDecimal prepaymentPercent;
 	private BigDecimal prepaymentAmount;
 	private BigDecimal loanAmount;
 	private Integer loanTermMonths;
 	private String repaymentMethod;
+	private String bankCode;
+	private Boolean requestPreDeposit;
 
 	private Boolean agreedTerms;
 	private Boolean agreedPrivacy;
@@ -56,6 +60,11 @@ public class InstallmentApplicationResponse {
 	private String status;
 	private String rejectionReason;
 	private String bankPdfUrl;
+	private Boolean hasValidDepositForVehicle;
+	private Boolean depositProofUploaded;
+	private BigDecimal appliedDepositAmount;
+	private Boolean canSubmit;
+	private String blockingReason;
 
 	private java.util.List<InstallmentDocumentResponse> documents;
 

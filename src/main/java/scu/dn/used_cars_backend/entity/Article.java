@@ -46,6 +46,9 @@ public class Article extends BaseEntity {
 	@Column(name = "published_at")
 	private Instant publishedAt;
 
+	@Column(name = "is_featured", nullable = false)
+	private boolean featured = false;
+
 	@Column(name = "view_count", nullable = false)
 	private int viewCount = 0;
 

@@ -35,8 +35,15 @@ public class InstallmentApplication extends BaseEntity {
 	@JoinColumn(name = "deposit_id")
 	private Deposit deposit;
 
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "pre_deposit_id")
+	private Deposit preDeposit;
+
 	@Column(name = "bank_loan_id", length = 100)
 	private String bankLoanId;
+
+	@Column(name = "bank_code", length = 50)
+	private String bankCode;
 
 	// Personal Info (Draft / Snapshot)
 	@Column(name = "full_name", length = 100)
@@ -105,6 +112,9 @@ public class InstallmentApplication extends BaseEntity {
 	@Column(name = "vehicle_price")
 	private BigDecimal vehiclePrice;
 
+	@Column(name = "prepayment_percent", precision = 5, scale = 2)
+	private BigDecimal prepaymentPercent;
+
 	@Column(name = "prepayment_amount")
 	private BigDecimal prepaymentAmount;
 
@@ -116,6 +126,9 @@ public class InstallmentApplication extends BaseEntity {
 
 	@Column(name = "repayment_method", length = 50)
 	private String repaymentMethod;
+
+	@Column(name = "request_pre_deposit")
+	private Boolean requestPreDeposit;
 
 	@Column(name = "agreed_terms")
 	private Boolean agreedTerms;

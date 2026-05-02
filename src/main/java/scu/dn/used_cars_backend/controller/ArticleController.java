@@ -38,7 +38,9 @@ public class ArticleController {
 
 		Page<ArticleListItemResponse> result = articleService.getPublishedArticles(
 				keyword, category,
-				PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "publishedAt")));
+				PageRequest.of(page, size, Sort.by(
+						Sort.Order.desc("featured"),
+						Sort.Order.desc("publishedAt"))));
 
 		PageMetaDto meta = PageMetaDto.builder()
 				.page(result.getNumber())

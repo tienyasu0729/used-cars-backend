@@ -17,17 +17,24 @@ import scu.dn.used_cars_backend.dto.chat.CreateChatConversationRequest;
 import scu.dn.used_cars_backend.dto.chat.CreateChatConversationResponse;
 import scu.dn.used_cars_backend.dto.chat.SendChatMessageRequest;
 import scu.dn.used_cars_backend.dto.chat.SendChatMessageResponse;
+import scu.dn.used_cars_backend.dto.chat.StartVehicleConsultationChatRequest;
+import scu.dn.used_cars_backend.dto.chat.StartVehicleConsultationChatResponse;
 import scu.dn.used_cars_backend.dto.chat.TransferChatConversationRequest;
 import scu.dn.used_cars_backend.entity.ChatConversation;
 import scu.dn.used_cars_backend.entity.ChatMessage;
 import scu.dn.used_cars_backend.entity.ChatParticipant;
 import scu.dn.used_cars_backend.entity.Consultation;
+import scu.dn.used_cars_backend.entity.ConsultationRoutingState;
+import scu.dn.used_cars_backend.entity.Vehicle;
 import scu.dn.used_cars_backend.entity.User;
+import scu.dn.used_cars_backend.repository.BranchRepository;
 import scu.dn.used_cars_backend.repository.ChatConversationRepository;
 import scu.dn.used_cars_backend.repository.ChatMessageRepository;
 import scu.dn.used_cars_backend.repository.ChatParticipantRepository;
+import scu.dn.used_cars_backend.repository.ConsultationRoutingStateRepository;
 import scu.dn.used_cars_backend.repository.ConsultationRepository;
 import scu.dn.used_cars_backend.repository.UserRepository;
+import scu.dn.used_cars_backend.repository.VehicleRepository;
 
 import java.math.BigDecimal;
 import java.text.NumberFormat;
@@ -37,6 +44,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 @Service
@@ -48,6 +56,9 @@ public class ChatService {
 	private final ChatMessageRepository chatMessageRepository;
 	private final UserRepository userRepository;
 	private final ConsultationRepository consultationRepository;
+	private final ConsultationRoutingStateRepository consultationRoutingStateRepository;
+	private final VehicleRepository vehicleRepository;
+	private final BranchRepository branchRepository;
 	private final BranchService branchService;
 	private final StaffService staffService;
 
@@ -184,8 +195,10 @@ public class ChatService {
 		String otherRole = primaryRoleLabel(other);
 		// B3: Customer ↔ NV/QL; hoặc nội bộ khi có ít nhất một BranchManager (QL chat liên chi nhánh / NV↔QL).
 		boolean customerStaffPair =
-				("Customer".equals(currentRole) && ("SalesStaff".equals(otherRole) || "BranchManager".equals(otherRole)))
-						|| (("SalesStaff".equals(currentRole) || "BranchManager".equals(currentRole))
+				("Customer".equals(currentRole) && ("SalesStaff".equals(otherRole) || "BranchManager".equals(otherRole)
+						|| "ConsultationStaff".equals(otherRole)))
+						|| (("SalesStaff".equals(currentRole) || "BranchManager".equals(currentRole)
+								|| "ConsultationStaff".equals(currentRole))
 								&& "Customer".equals(otherRole));
 		boolean staffInternalWithManager =
 				("SalesStaff".equals(currentRole) || "BranchManager".equals(currentRole))
@@ -195,7 +208,7 @@ public class ChatService {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
 					"Bạn không thể tạo hội thoại với người dùng này.");
 		}
-		var existing = chatConversationRepository.findDirectBetweenTwoUsers(currentUserId, otherId);
+		var existing = chatConversationRepository.findLatestDirectBetweenTwoUsers(currentUserId, otherId);
 		if (existing.isPresent()) {
 			long cid = existing.get().getId();
 			if (req.getInitialMessage() != null && !req.getInitialMessage().isBlank()) {
@@ -223,6 +236,69 @@ public class ChatService {
 	}
 
 	@Transactional
+	public StartVehicleConsultationChatResponse startVehicleConsultationChat(long currentUserId,
+			StartVehicleConsultationChatRequest req) {
+		User current = userRepository.findActiveByIdWithRoles(currentUserId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+		if (!"Customer".equals(primaryRoleLabel(current))) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Chỉ khách hàng được dùng chức năng liên hệ tư vấn theo xe.");
+		}
+
+		Vehicle vehicle = vehicleRepository.findPublicDetailById(req.getVehicleId())
+				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND));
+		if (vehicle.getBranch() == null || vehicle.getBranch().getId() == null) {
+			throw new BusinessException(ErrorCode.BRANCH_NOT_FOUND, "Xe chưa được gán chi nhánh.");
+		}
+
+		int branchId = vehicle.getBranch().getId();
+		long receiverUserId = resolveConsultationReceiverUserId(branchId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
+						"Chi nhánh hiện chưa có nhân sự tư vấn khả dụng."));
+		if (receiverUserId == currentUserId) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Không thể tự gửi chat tư vấn cho chính mình.");
+		}
+
+		User receiver = userRepository.findActiveByIdWithRoles(receiverUserId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+
+		Optional<ChatConversation> existing = chatConversationRepository.findLatestDirectBetweenTwoUsers(currentUserId, receiverUserId);
+		long conversationId;
+		boolean reusedConversation = existing.isPresent();
+		if (reusedConversation) {
+			ChatParticipant mine = chatParticipantRepository
+					.findByConversationIdAndUserId(existing.get().getId(), currentUserId)
+					.orElse(null);
+			// Nếu user đã "xóa" (hidden) hội thoại cũ, không khôi phục: tạo hội thoại mới.
+			if (mine != null && mine.getHiddenAt() != null) {
+				reusedConversation = false;
+			}
+		}
+		if (reusedConversation) {
+			conversationId = existing.get().getId();
+		} else {
+			ChatConversation c = new ChatConversation();
+			c = chatConversationRepository.save(c);
+			conversationId = c.getId();
+			ChatParticipant a = new ChatParticipant();
+			a.setConversationId(conversationId);
+			a.setUserId(currentUserId);
+			a.setUnreadCount(0);
+			ChatParticipant b = new ChatParticipant();
+			b.setConversationId(conversationId);
+			b.setUserId(receiverUserId);
+			b.setUnreadCount(0);
+			chatParticipantRepository.save(a);
+			chatParticipantRepository.save(b);
+		}
+
+		if (req.getMessage() != null && !req.getMessage().isBlank()) {
+			String firstMessage = buildVehicleConsultationMessage(vehicle, req.getMessage());
+			persistMessage(currentUserId, conversationId, firstMessage, "text");
+		}
+		return new StartVehicleConsultationChatResponse(conversationId, receiverUserId, receiver.getName(), reusedConversation);
+	}
+
+	@Transactional
 	public Page<ChatMessageRowDto> listMessages(long currentUserId, long conversationId, int page, int size) {
 		assertParticipant(conversationId, currentUserId);
 		ChatParticipant mine = chatParticipantRepository.findByConversationIdAndUserId(conversationId, currentUserId)
@@ -243,6 +319,7 @@ public class ChatService {
 				.senderId(m.getSender().getId())
 				.senderName(m.getSender().getName())
 				.content(m.getContent())
+				.messageType(m.getMessageType())
 				.sentAt(m.getSentAt())
 				.read(m.isRead())
 				.build();
@@ -286,6 +363,66 @@ public class ChatService {
 			chatParticipantRepository.save(p);
 		}
 		return m.getId();
+	}
+
+	private Optional<Long> resolveConsultationReceiverUserId(int branchId) {
+		List<User> consultants = userRepository.findActiveConsultationStaffUsersByBranchId(branchId);
+		if (!consultants.isEmpty()) {
+			ConsultationRoutingState state = consultationRoutingStateRepository.findForUpdate(branchId)
+					.orElseGet(() -> {
+						ConsultationRoutingState s = new ConsultationRoutingState();
+						s.setBranchId(branchId);
+						return s;
+					});
+			Long last = state.getLastAssignedUserId();
+			List<Long> ids = consultants.stream()
+					.map(User::getId)
+					.filter(id -> id != null)
+					.toList();
+			if (ids.isEmpty()) {
+				return Optional.empty();
+			}
+			int pickIndex = 0;
+			if (last != null) {
+				int idx = ids.indexOf(last);
+				pickIndex = idx >= 0 ? (idx + 1) % ids.size() : 0;
+			}
+			Long picked = ids.get(pickIndex);
+			state.setLastAssignedUserId(picked);
+			consultationRoutingStateRepository.save(state);
+			return Optional.of(picked);
+		}
+
+		return branchRepository.findActiveByIdWithManager(branchId)
+				.flatMap(branch -> {
+					User manager = branch.getManager();
+					if (manager == null || manager.getId() == null) {
+						return Optional.empty();
+					}
+					User loaded = userRepository.findActiveByIdWithRoles(manager.getId()).orElse(null);
+					if (loaded == null || !"BranchManager".equals(primaryRoleLabel(loaded))) {
+						return Optional.empty();
+					}
+					return Optional.of(loaded.getId());
+				});
+	}
+
+	private String buildVehicleConsultationMessage(Vehicle vehicle, String customerMessage) {
+		StringBuilder sb = new StringBuilder();
+		sb.append("Khách hàng cần tư vấn xe.");
+		sb.append("\n- Xe: ").append(vehicle.getTitle() == null || vehicle.getTitle().isBlank() ? "#" + vehicle.getId()
+				: vehicle.getTitle().trim());
+		sb.append("\n- Mã xe: ").append(vehicle.getId());
+		if (vehicle.getPrice() != null) {
+			sb.append("\n- Giá niêm yết: ").append(formatListingPriceVnd(vehicle.getPrice()));
+		}
+		if (vehicle.getBranch() != null && vehicle.getBranch().getName() != null && !vehicle.getBranch().getName().isBlank()) {
+			sb.append("\n- Chi nhánh: ").append(vehicle.getBranch().getName().trim());
+		}
+		if (customerMessage != null && !customerMessage.isBlank()) {
+			sb.append("\n- Lời nhắn khách: ").append(customerMessage.trim());
+		}
+		return sb.toString();
 	}
 
 	private void assertParticipant(long conversationId, long userId) {

@@ -163,6 +163,66 @@ public class EmailNotificationService {
 		return formatter.format(price) + " VNĐ";
 	}
 
+	@Async
+	@Transactional(propagation = Propagation.REQUIRES_NEW)
+	public void sendManagerBookingCreatedEmailAsync(
+			String toEmail,
+			String customerName,
+			String vehicleTitle,
+			LocalDate bookingDate,
+			java.time.LocalTime timeSlot,
+			String branchName,
+			String bookingType,
+			String note) {
+		try {
+			if (toEmail == null || toEmail.isBlank()) {
+				return;
+			}
+			JavaMailSender sender = javaMailSenderProvider.getIfAvailable();
+			if (sender == null) {
+				return;
+			}
+			String from = (mailFromProp != null && !mailFromProp.isBlank()) ? mailFromProp : springMailUsername;
+			if (from == null || from.isBlank()) {
+				return;
+			}
+			String safeCustomer = customerName != null && !customerName.isBlank() ? customerName.trim() : "Quý khách";
+			String safeVehicle = vehicleTitle != null && !vehicleTitle.isBlank() ? vehicleTitle.trim() : "Xe đã chọn";
+			String safeBranch = branchName != null && !branchName.isBlank() ? branchName.trim() : "Chi nhánh showroom";
+			String safeType = bookingType != null && !bookingType.isBlank() ? bookingType.trim() : "test_drive";
+			String safeDate = bookingDate != null ? bookingDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy")) : "";
+			String safeTime = timeSlot != null ? timeSlot.toString() : "";
+			String safeNote = note != null && !note.isBlank() ? note.trim() : "Không có";
+
+			String subject = "Xác nhận lịch hẹn lái thử/showroom";
+			String body = "<div style=\"font-family:Arial,sans-serif;max-width:600px;margin:0 auto\">"
+					+ "<h2 style=\"color:#1A3C6E\">Lịch hẹn đã được tạo</h2>"
+					+ "<p>Xin chào " + safeCustomer + ",</p>"
+					+ "<p>Showroom đã tạo lịch hẹn cho bạn với thông tin sau:</p>"
+					+ "<ul>"
+					+ "<li><b>Xe:</b> " + safeVehicle + "</li>"
+					+ "<li><b>Chi nhánh:</b> " + safeBranch + "</li>"
+					+ "<li><b>Ngày hẹn:</b> " + safeDate + "</li>"
+					+ "<li><b>Giờ hẹn:</b> " + safeTime + "</li>"
+					+ "<li><b>Loại lịch:</b> " + safeType + "</li>"
+					+ "<li><b>Ghi chú:</b> " + safeNote + "</li>"
+					+ "</ul>"
+					+ "<p>Nếu cần đổi lịch, vui lòng liên hệ showroom sớm để được hỗ trợ.</p>"
+					+ "</div>";
+
+			MimeMessage mm = sender.createMimeMessage();
+			MimeMessageHelper helper = new MimeMessageHelper(mm, false, "UTF-8");
+			helper.setFrom(from);
+			helper.setTo(toEmail.trim());
+			helper.setSubject(subject);
+			helper.setText(body, true);
+			sender.send(mm);
+		}
+		catch (Exception e) {
+			log.warn("Gửi email xác nhận lịch hẹn thất bại cho {}: {}", toEmail, e.getMessage());
+		}
+	}
+
 	// ===== EMAIL ĐẶT CỌC THÀNH CÔNG =====
 
 	/**

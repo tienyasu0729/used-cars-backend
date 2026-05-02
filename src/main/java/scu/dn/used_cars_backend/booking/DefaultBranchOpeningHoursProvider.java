@@ -35,6 +35,14 @@ public class DefaultBranchOpeningHoursProvider implements BranchOpeningHoursProv
 				.orElse(false);
 	}
 
+	@Override
+	public boolean isBranchClosedOnDate(int branchId, LocalDate date) {
+		int dow = dayOfWeekForSchema(date);
+		return branchWorkingHoursRepository.findByBranch_IdAndDayOfWeek(branchId, dow)
+				.map(BranchWorkingHours::isClosed)
+				.orElse(true);
+	}
+
 	private static boolean isTimeWithinOpenClose(BranchWorkingHours h, LocalTime time) {
 		LocalTime open = h.getOpenTime();
 		LocalTime close = h.getCloseTime();

@@ -7,7 +7,7 @@ import java.util.List;
 
 /**
  * Cấu hình bảo mật bổ sung: CORS, rate limit auth, whitelist IP webhook thanh toán.
- * Bind từ app.security.* trong application.yml / application-local.yml.
+ * Bind từ app.security.* trong application.yml.
  */
 @ConfigurationProperties(prefix = "app.security")
 public class AppSecurityProperties {

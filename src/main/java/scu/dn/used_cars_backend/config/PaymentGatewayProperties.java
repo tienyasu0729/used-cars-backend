@@ -38,6 +38,7 @@ public class PaymentGatewayProperties {
 	}
 
 	public static class Vnpay {
+		private boolean enabled;
 		private String tmnCode = "";
 		private String hashSecret = "";
 		private String payUrl = "";
@@ -47,6 +48,14 @@ public class PaymentGatewayProperties {
 		private String customerIpFallback = "";
 		private String orderType = "";
 		private String hmacAlgorithm = "";
+
+		public boolean isEnabled() {
+			return enabled;
+		}
+
+		public void setEnabled(boolean enabled) {
+			this.enabled = enabled;
+		}
 
 		public String getTmnCode() {
 			return tmnCode;
@@ -122,11 +131,20 @@ public class PaymentGatewayProperties {
 	}
 
 	public static class Zalopay {
+		private boolean enabled;
 		private String appId = "";
 		private String key1 = "";
 		private String key2 = "";
 		private String endpoint = "";
 		private String callbackUrl = "";
+
+		public boolean isEnabled() {
+			return enabled;
+		}
+
+		public void setEnabled(boolean enabled) {
+			this.enabled = enabled;
+		}
 
 		public String getAppId() {
 			return appId;

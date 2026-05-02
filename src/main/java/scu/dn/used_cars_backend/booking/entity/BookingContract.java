@@ -13,6 +13,8 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 
@@ -39,7 +41,8 @@ public class BookingContract {
 	@Column(name = "signature_type", length = 10)
 	private String signatureType;
 
-	@Column(name = "signature_url", length = 500)
+	@JdbcTypeCode(SqlTypes.LONGNVARCHAR)
+	@Column(name = "signature_url", columnDefinition = "NVARCHAR(MAX)")
 	private String signatureUrl;
 
 	@Column(name = "id_card_url", length = 500)

@@ -22,6 +22,7 @@ public class ArticleListItemResponse {
 	private String categoryName;
 	private String categorySlug;
 	private String status;
+	private boolean featured;
 	private Instant publishedAt;
 	private Instant createdAt;
 	private int viewCount;

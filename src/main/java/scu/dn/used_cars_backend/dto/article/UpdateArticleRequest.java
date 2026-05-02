@@ -23,4 +23,6 @@ public class UpdateArticleRequest {
 	private Long categoryId;
 
 	private String status;
+
+	private Boolean featured;
 }

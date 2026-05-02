@@ -37,6 +37,8 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 			select v from Vehicle v
 			where v.deleted = false
 			and v.status <> 'Hidden'
+			and v.status <> 'Sold'
+			and v.status <> 'Reserved'
 			and (:keyword is null
 			  or lower(v.title) like lower(concat('%', :keyword, '%'))
 			  or lower(v.category.name) like lower(concat('%', :keyword, '%'))
@@ -62,11 +64,11 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 			Pageable pageable);
 
 	@EntityGraph(attributePaths = { "category", "subcategory", "branch", "branch.manager", "images" })
-	@Query("select v from Vehicle v where v.id in :ids and v.deleted = false and v.status <> 'Hidden'")
+	@Query("select v from Vehicle v where v.id in :ids and v.deleted = false and v.status <> 'Hidden' and v.status <> 'Sold' and v.status <> 'Reserved'")
 	List<Vehicle> findPublicByIds(@Param("ids") Collection<Long> ids);
 
 	@EntityGraph(attributePaths = { "category", "subcategory", "branch", "branch.manager", "images" })
-	@Query("select v from Vehicle v where v.id = :id and v.deleted = false and v.status <> 'Hidden'")
+	@Query("select v from Vehicle v where v.id = :id and v.deleted = false and v.status <> 'Hidden' and v.status <> 'Sold' and v.status <> 'Reserved'")
 	Optional<Vehicle> findPublicDetailById(@Param("id") Long id);
 
 	@EntityGraph(attributePaths = { "category", "subcategory", "branch", "branch.manager", "images" })

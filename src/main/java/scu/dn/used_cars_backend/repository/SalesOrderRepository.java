@@ -108,6 +108,11 @@ public interface SalesOrderRepository extends JpaRepository<SalesOrder, Long> {
 	long countByVehicleIdAndStatusIn(@Param("vehicleId") long vehicleId,
 			@Param("statuses") List<String> statuses);
 
+	@Query("select count(o) from SalesOrder o where o.vehicle.id = :vehicleId and o.customerId <> :customerId and o.status in :statuses")
+	long countByVehicleIdAndCustomerIdNotAndStatusIn(@Param("vehicleId") long vehicleId,
+			@Param("customerId") long customerId,
+			@Param("statuses") List<String> statuses);
+
 	// Tim don Pending khong co coc (depositAmount = 0) va tao truoc moc thoi gian cutoff.
 	// Dung cho scheduler auto-cancel don giu xe ao qua han.
 	@Query("""

@@ -19,6 +19,8 @@ import scu.dn.used_cars_backend.repository.VehicleMaintenanceHistoryRepository;
 import scu.dn.used_cars_backend.repository.VehicleRepository;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -71,6 +73,25 @@ public class MaintenanceService {
 		// B3: lưu vào DB
 		VehicleMaintenanceHistory saved = maintenanceRepo.save(record);
 		return toResponse(saved);
+	}
+
+	@Transactional
+	public List<MaintenanceHistoryResponse> createMaintenanceRecordsBulk(long vehicleId,
+			List<CreateMaintenanceRequest> requests, long actorUserId, boolean isAdmin) {
+		Vehicle v = vehicleRepository.findManagedDetailById(vehicleId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
+		vehicleService.assertCanManageBranchPublic(actorUserId, isAdmin, v.getBranch());
+		List<MaintenanceHistoryResponse> out = new ArrayList<>();
+		for (CreateMaintenanceRequest req : requests) {
+			VehicleMaintenanceHistory record = new VehicleMaintenanceHistory();
+			record.setVehicle(v);
+			record.setMaintenanceDate(req.getMaintenanceDate());
+			record.setDescription(req.getDescription());
+			record.setCost(req.getCost() != null ? req.getCost() : BigDecimal.ZERO);
+			record.setPerformedBy(req.getPerformedBy());
+			out.add(toResponse(maintenanceRepo.save(record)));
+		}
+		return out;
 	}
 
 	/**

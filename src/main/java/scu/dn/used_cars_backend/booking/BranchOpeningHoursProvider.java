@@ -13,4 +13,9 @@ public interface BranchOpeningHoursProvider {
 	 * @return true nếu {@code time} nằm trong khung làm việc của chi nhánh vào {@code date}.
 	 */
 	boolean isWithinWorkingHours(int branchId, LocalDate date, LocalTime time);
+
+	/**
+	 * @return true nếu chi nhánh đó nghỉ cả ngày {@code date}.
+	 */
+	boolean isBranchClosedOnDate(int branchId, LocalDate date);
 }

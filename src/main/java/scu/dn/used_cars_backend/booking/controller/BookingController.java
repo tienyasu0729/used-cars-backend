@@ -118,7 +118,15 @@ public class BookingController {
 	public ResponseEntity<ApiResponse<BookingResponse>> complete(@PathVariable long id,
 			Authentication authentication) {
 		long userId = requireUserId(authentication);
-		return ResponseEntity.ok(ApiResponse.success(bookingService.completeBooking(id, userId)));
+		return ResponseEntity.ok(ApiResponse.success(bookingService.completeTestDrive(id, userId)));
+	}
+
+	@PatchMapping("/{id}/no-show")
+	@PreAuthorize("hasAnyRole('ADMIN','BRANCHMANAGER','SALESSTAFF')")
+	public ResponseEntity<ApiResponse<BookingResponse>> noShow(@PathVariable long id,
+			Authentication authentication) {
+		long userId = requireUserId(authentication);
+		return ResponseEntity.ok(ApiResponse.success(bookingService.markNoShow(id, userId, isAdmin(authentication))));
 	}
 
 	private static long requireUserId(Authentication authentication) {
@@ -135,6 +143,15 @@ public class BookingController {
 		for (GrantedAuthority a : authentication.getAuthorities()) {
 			String r = a.getAuthority();
 			if ("ROLE_ADMIN".equals(r) || "ROLE_BRANCHMANAGER".equals(r) || "ROLE_SALESSTAFF".equals(r)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static boolean isAdmin(Authentication authentication) {
+		for (GrantedAuthority a : authentication.getAuthorities()) {
+			if ("ROLE_ADMIN".equals(a.getAuthority())) {
 				return true;
 			}
 		}

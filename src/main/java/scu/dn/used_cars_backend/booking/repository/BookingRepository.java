@@ -12,6 +12,7 @@ import scu.dn.used_cars_backend.booking.entity.Booking;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 public interface BookingRepository extends JpaRepository<Booking, Long> {
@@ -125,4 +126,22 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 			""")
 	long countBetweenDatesAtBranchExcludingCancelled(@Param("branchId") int branchId, @Param("start") LocalDate start,
 			@Param("end") LocalDate end);
+
+	@Query("""
+			select case when count(b) > 0 then true else false end from Booking b
+			where b.customerId = :customerId
+			and b.vehicle.id = :vehicleId
+			and b.status = 'Completed'
+			""")
+	boolean existsCompletedBookingByCustomerIdAndVehicleId(@Param("customerId") long customerId,
+			@Param("vehicleId") long vehicleId);
+
+	@Query("""
+			select b.id from Booking b
+			where b.bookingDate <= :bookingDate
+			and b.status in :statuses
+			order by b.bookingDate asc, b.timeSlot asc, b.id asc
+			""")
+	List<Long> findIdsByBookingDateLessThanEqualAndStatusIn(@Param("bookingDate") LocalDate bookingDate,
+			@Param("statuses") Collection<String> statuses);
 }

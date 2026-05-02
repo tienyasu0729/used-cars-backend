@@ -20,4 +20,8 @@ public class AvailableSlotResponse {
 	private int availableCount;
 
 	private int maxBookings;
+
+	private boolean bookable;
+
+	private String unavailableReason;
 }

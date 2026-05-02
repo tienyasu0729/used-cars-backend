@@ -9,10 +9,7 @@ import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 
-@SpringBootApplication(exclude = {
-    org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration.class,
-    org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration.class
-})
+@SpringBootApplication
 @ConfigurationPropertiesScan
 @EnableMethodSecurity
 @EnableAsync

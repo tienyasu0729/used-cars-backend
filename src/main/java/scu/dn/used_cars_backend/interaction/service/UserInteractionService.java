@@ -127,7 +127,7 @@ public class UserInteractionService {
 		vehicleViewHistoryAsyncWriter.insertAsync(g, userId, vehicleId);
 	}
 
-	/** 10 xe gần nhất: Redis trước, miss thì DB; lọc xe đã xóa / Hidden. */
+	/** 10 xe gần nhất: Redis trước, miss thì DB; lọc xe đã xóa / Hidden / Sold. */
 	@Transactional(readOnly = true)
 	public List<ViewHistoryResponse> recentlyViewed(String guestId, Long userId) {
 		// B1: ưu tiên user đã đăng nhập
@@ -227,7 +227,8 @@ public class UserInteractionService {
 		List<ViewHistoryResponse> out = new ArrayList<>();
 		for (Long id : orderedIds) {
 			InteractionVehicleSnapshot s = byId.get(id);
-			if (s == null || s.deleted() || "Hidden".equals(s.status())) {
+			if (s == null || s.deleted() || "Hidden".equals(s.status()) || "Sold".equals(s.status())
+					|| "Reserved".equals(s.status())) {
 				continue;
 			}
 			out.add(ViewHistoryResponse.builder()

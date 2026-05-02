@@ -17,9 +17,13 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import scu.dn.used_cars_backend.common.api.ApiResponse;
+import scu.dn.used_cars_backend.dto.installment.CreateInstallmentPreDepositRequest;
 import scu.dn.used_cars_backend.dto.installment.InstallmentApplicationResponse;
 import scu.dn.used_cars_backend.dto.installment.InstallmentDocumentResponse;
+import scu.dn.used_cars_backend.dto.installment.InstallmentSubmitEligibilityResponse;
 import scu.dn.used_cars_backend.dto.installment.SaveInstallmentApplicationRequest;
+import scu.dn.used_cars_backend.dto.sales.CreateDepositResponse;
+import scu.dn.used_cars_backend.dto.vehicle.PageMetaDto;
 import scu.dn.used_cars_backend.security.AuthenticationDetailsUtils;
 import scu.dn.used_cars_backend.security.JwtRoleNames;
 import scu.dn.used_cars_backend.service.InstallmentService;
@@ -62,12 +66,54 @@ public class InstallmentController {
 		return ResponseEntity.ok(ApiResponse.success(res));
 	}
 
+	@GetMapping("/{id}/restore")
+	@PreAuthorize("isAuthenticated()")
+	public ResponseEntity<ApiResponse<InstallmentApplicationResponse>> restoreApplicationFromPaymentCache(
+			@PathVariable Long id, Authentication auth) {
+		long uid = AuthenticationDetailsUtils.requireUserId(auth);
+		String role = JwtRoleNames.primaryRole(auth);
+		InstallmentApplicationResponse res = installmentService.restoreApplicationFromPaymentCache(uid, role, id);
+		return ResponseEntity.ok(ApiResponse.success(res));
+	}
+
+	@GetMapping("/restore-by-deposit/{depositId}")
+	@PreAuthorize("isAuthenticated()")
+	public ResponseEntity<ApiResponse<InstallmentApplicationResponse>> restoreApplicationByDeposit(
+			@PathVariable Long depositId, Authentication auth) {
+		long uid = AuthenticationDetailsUtils.requireUserId(auth);
+		String role = JwtRoleNames.primaryRole(auth);
+		InstallmentApplicationResponse res = installmentService.restoreApplicationFromDepositCache(uid, role, depositId);
+		return ResponseEntity.ok(ApiResponse.success(res));
+	}
+
+	@GetMapping("/{id}/submit-eligibility")
+	@PreAuthorize("isAuthenticated()")
+	public ResponseEntity<ApiResponse<InstallmentSubmitEligibilityResponse>> getSubmitEligibility(
+			@PathVariable Long id,
+			Authentication auth) {
+		long uid = AuthenticationDetailsUtils.requireUserId(auth);
+		String role = JwtRoleNames.primaryRole(auth);
+		InstallmentSubmitEligibilityResponse res = installmentService.getSubmitEligibility(uid, role, id);
+		return ResponseEntity.ok(ApiResponse.success(res));
+	}
+
 	@GetMapping("/me")
 	@PreAuthorize("isAuthenticated()")
-	public ResponseEntity<ApiResponse<List<InstallmentApplicationResponse>>> getMyApplications(Authentication auth) {
+	public ResponseEntity<ApiResponse<List<InstallmentApplicationResponse>>> getMyApplications(
+			@RequestParam(defaultValue = "0") int page,
+			@RequestParam(defaultValue = "10") int size,
+			@RequestParam(required = false) String status,
+			@RequestParam(required = false) String q,
+			Authentication auth) {
 		long uid = AuthenticationDetailsUtils.requireUserId(auth);
-		List<InstallmentApplicationResponse> list = installmentService.getMyApplications(uid);
-		return ResponseEntity.ok(ApiResponse.success(list));
+		var resultPage = installmentService.searchMyApplications(uid, page, size, status, q);
+		PageMetaDto meta = PageMetaDto.builder()
+				.page(resultPage.getNumber())
+				.size(resultPage.getSize())
+				.totalElements(resultPage.getTotalElements())
+				.totalPages(resultPage.getTotalPages())
+				.build();
+		return ResponseEntity.ok(ApiResponse.success(resultPage.getContent(), meta));
 	}
 
 	@GetMapping
@@ -139,6 +185,19 @@ public class InstallmentController {
 		String userName = auth.getName();
 		installmentService.appraiseApplication(uid, userName, id);
 		return ResponseEntity.ok(ApiResponse.success(null));
+	}
+
+	@PostMapping("/{id}/pre-deposit")
+	@PreAuthorize("isAuthenticated()")
+	public ResponseEntity<ApiResponse<CreateDepositResponse>> createPreDeposit(
+			@PathVariable Long id,
+			@Valid @RequestBody CreateInstallmentPreDepositRequest request,
+			Authentication auth,
+			jakarta.servlet.http.HttpServletRequest httpRequest) {
+		long uid = AuthenticationDetailsUtils.requireUserId(auth);
+		String role = JwtRoleNames.primaryRole(auth);
+		CreateDepositResponse res = installmentService.createPreDeposit(uid, role, id, request, httpRequest);
+		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(res));
 	}
 
 	// Phase 5: Liên kết deposit (cọc thiện chí) với hồ sơ trả góp

@@ -18,6 +18,7 @@ public class ChatMessageRowDto {
 	private long senderId;
 	private String senderName;
 	private String content;
+	private String messageType;
 	private Instant sentAt;
 
 	@JsonProperty("isRead")

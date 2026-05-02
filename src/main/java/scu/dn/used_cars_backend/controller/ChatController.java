@@ -25,6 +25,8 @@ import scu.dn.used_cars_backend.dto.chat.CreateChatConversationRequest;
 import scu.dn.used_cars_backend.dto.chat.CreateChatConversationResponse;
 import scu.dn.used_cars_backend.dto.chat.SendChatMessageRequest;
 import scu.dn.used_cars_backend.dto.chat.SendChatMessageResponse;
+import scu.dn.used_cars_backend.dto.chat.StartVehicleConsultationChatRequest;
+import scu.dn.used_cars_backend.dto.chat.StartVehicleConsultationChatResponse;
 import scu.dn.used_cars_backend.dto.chat.TransferChatConversationRequest;
 import scu.dn.used_cars_backend.security.AuthenticationDetailsUtils;
 import scu.dn.used_cars_backend.service.ChatService;
@@ -82,6 +84,14 @@ public class ChatController {
 			@Valid @RequestBody SendChatMessageRequest body) {
 		long uid = AuthenticationDetailsUtils.requireUserId(auth);
 		SendChatMessageResponse r = chatService.sendMessage(uid, body);
+		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(r));
+	}
+
+	@PostMapping("/consultations/vehicle")
+	public ResponseEntity<ApiResponse<StartVehicleConsultationChatResponse>> startVehicleConsultationChat(
+			Authentication auth, @Valid @RequestBody StartVehicleConsultationChatRequest body) {
+		long uid = AuthenticationDetailsUtils.requireUserId(auth);
+		StartVehicleConsultationChatResponse r = chatService.startVehicleConsultationChat(uid, body);
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(r));
 	}
 

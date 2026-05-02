@@ -51,6 +51,23 @@ public interface UserRepository extends JpaRepository<User, Long>, JpaSpecificat
 
 	@EntityGraph(attributePaths = { "userRoles", "userRoles.role" })
 	@Query("""
+			select u from User u
+			where u.id in (
+				select sa.userId from StaffAssignment sa
+				where sa.branchId = :branchId and sa.active = true
+					and (sa.endDate is null or sa.endDate >= CURRENT_DATE)
+			)
+			and u.deleted = false and lower(u.status) = 'active'
+			and exists (
+				select 1 from UserRole ur
+				where ur.user = u and ur.role.name = 'ConsultationStaff'
+			)
+			order by u.id asc
+			""")
+	List<User> findActiveConsultationStaffUsersByBranchId(@Param("branchId") int branchId);
+
+	@EntityGraph(attributePaths = { "userRoles", "userRoles.role" })
+	@Query("""
 			select distinct u from User u
 			join u.userRoles ur
 			join ur.role r

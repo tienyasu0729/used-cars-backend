@@ -26,6 +26,7 @@ import scu.dn.used_cars_backend.entity.Vehicle;
 import scu.dn.used_cars_backend.entity.VehicleStatus;
 import scu.dn.used_cars_backend.repository.DepositRepository;
 import scu.dn.used_cars_backend.repository.FinancialTransactionRepository;
+import scu.dn.used_cars_backend.repository.InstallmentApplicationRepository;
 import scu.dn.used_cars_backend.repository.OrderPaymentRepository;
 import scu.dn.used_cars_backend.repository.SalesOrderRepository;
 import scu.dn.used_cars_backend.repository.VehicleRepository;
@@ -59,6 +60,7 @@ public class PaymentApplicationService {
 	private final OrderPaymentRepository orderPaymentRepository;
 	private final DepositRepository depositRepository;
 	private final FinancialTransactionRepository financialTransactionRepository;
+	private final InstallmentApplicationRepository installmentApplicationRepository;
 	private final PaymentGatewayConfigService paymentGatewayConfigService;
 	private final VnpayService vnpayService;
 	private final VnpayMerchantApiService vnpayMerchantApiService;
@@ -374,9 +376,13 @@ public class PaymentApplicationService {
 		Long depositId = orderId != null ? null
 				: Optional.ofNullable(txn).flatMap(depositRepository::findByGatewayTxnRef).map(Deposit::getId)
 						.orElse(null);
+		Long installmentApplicationId = depositId == null ? null
+				: installmentApplicationRepository.findFirstByDepositId(depositId)
+						.map(scu.dn.used_cars_backend.entity.InstallmentApplication::getId)
+						.orElse(null);
 		boolean ok = err.isEmpty();
 		String code = ok ? "00" : err.orElse("ERROR");
-		return new VnpayClientReturnPayload(ok, code, "vnpay", orderId, depositId);
+		return new VnpayClientReturnPayload(ok, code, "vnpay", orderId, depositId, installmentApplicationId);
 	}
 
 	public URI buildVnpayFrontendResultUri(VnpayClientReturnPayload p) {
@@ -384,7 +390,10 @@ public class PaymentApplicationService {
 		String q = "success=" + p.success() + "&code=" + URLEncoder.encode(p.code(), StandardCharsets.UTF_8)
 				+ "&kind=vnpay"
 				+ (p.orderId() != null ? "&orderId=" + p.orderId() : "")
-				+ (p.depositId() != null ? "&depositId=" + p.depositId() : "");
+				+ (p.depositId() != null ? "&depositId=" + p.depositId() : "")
+				+ (p.installmentApplicationId() != null
+						? "&applicationId=" + p.installmentApplicationId()
+						: "");
 		return URI.create(base + "/payment/result?" + q);
 	}
 

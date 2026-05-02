@@ -27,6 +27,7 @@ import scu.dn.used_cars_backend.repository.UserRepository;
 import scu.dn.used_cars_backend.service.CloudinaryUploadService;
 import scu.dn.used_cars_backend.service.EmailNotificationService;
 import scu.dn.used_cars_backend.service.MediaUploadContext;
+import scu.dn.used_cars_backend.service.StaffService;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -48,10 +49,21 @@ public class BookingContractService {
 	private final ContractTermsService contractTermsService;
 	private final EmailNotificationService emailNotificationService;
 	private final AuditLogWriter auditLogWriter;
+	private final StaffService staffService;
 
 	@Transactional(readOnly = true)
 	public ContractPreviewResponse getContractPreview(long bookingId, long customerId) {
 		Booking b = loadBookingForCustomer(bookingId, customerId);
+		return buildContractPreview(bookingId, b);
+	}
+
+	@Transactional(readOnly = true)
+	public ContractPreviewResponse getContractPreviewForStaff(long bookingId, long actorUserId, boolean actorIsAdmin) {
+		Booking b = loadBookingForStaff(bookingId, actorUserId, actorIsAdmin);
+		return buildContractPreview(bookingId, b);
+	}
+
+	private ContractPreviewResponse buildContractPreview(long bookingId, Booking b) {
 		BookingContract c = contractRepository.findByBooking_Id(bookingId).orElse(null);
 
 		User customer = userRepository.findById(b.getCustomerId()).orElse(null);
@@ -173,6 +185,16 @@ public class BookingContractService {
 	@Transactional(readOnly = true)
 	public byte[] generateContractPdf(long bookingId, long customerId) {
 		Booking b = loadBookingForCustomer(bookingId, customerId);
+		return generateSignedContractPdf(bookingId, b);
+	}
+
+	@Transactional(readOnly = true)
+	public byte[] generateContractPdfForStaff(long bookingId, long actorUserId, boolean actorIsAdmin) {
+		Booking b = loadBookingForStaff(bookingId, actorUserId, actorIsAdmin);
+		return generateSignedContractPdf(bookingId, b);
+	}
+
+	private byte[] generateSignedContractPdf(long bookingId, Booking b) {
 		BookingContract c = contractRepository.findByBooking_Id(bookingId)
 				.filter(ct -> "SIGNED".equals(ct.getContractStatus()))
 				.orElseThrow(() -> new BusinessException(ErrorCode.CONTRACT_NOT_FOUND, "Hợp đồng chưa được ký."));
@@ -208,6 +230,18 @@ public class BookingContractService {
 			log.error("PDF generation failed for booking {}", bookingId, e);
 			throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "Không thể tạo file PDF.");
 		}
+	}
+
+	private Booking loadBookingForStaff(long bookingId, long actorUserId, boolean actorIsAdmin) {
+		Booking b = bookingRepository.findWithDetailsById(bookingId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.BOOKING_NOT_FOUND, "Không tìm thấy lịch hẹn."));
+		if (!actorIsAdmin) {
+			int branchId = staffService.resolveBranchIdForAdminOrBranchStaff(null, actorUserId, false);
+			if (b.getBranch() == null || b.getBranch().getId() != branchId) {
+				throw new BusinessException(ErrorCode.BOOKING_ACCESS_DENIED, "Lịch hẹn không thuộc chi nhánh bạn quản lý.");
+			}
+		}
+		return b;
 	}
 
 	private Booking loadBookingForCustomer(long bookingId, long customerId) {

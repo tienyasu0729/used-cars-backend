@@ -25,6 +25,7 @@ public class ArticleDetailResponse {
 	private String categorySlug;
 	private Long categoryId;
 	private String status;
+	private boolean featured;
 	private Instant publishedAt;
 	private Instant createdAt;
 	private Instant updatedAt;

@@ -29,7 +29,20 @@ public interface DepositRepository extends JpaRepository<Deposit, Long> {
 
 	List<Deposit> findByCustomerIdOrderByCreatedAtDesc(Long customerId);
 
+	@Query("""
+			select d from Deposit d
+			where d.customerId = :customerId
+			and d.vehicleId = :vehicleId
+			and d.status in :statuses
+			order by d.createdAt desc
+			""")
+	List<Deposit> findByCustomerIdAndVehicleIdAndStatusIn(
+			@Param("customerId") Long customerId,
+			@Param("vehicleId") Long vehicleId,
+			@Param("statuses") Collection<String> statuses);
+
 	long countByVehicleIdAndStatusIn(long vehicleId, List<String> statuses);
+	long countByVehicleIdAndCustomerIdNotAndStatusIn(long vehicleId, long customerId, List<String> statuses);
 
 	@Query("""
 			select d.vehicleId, count(d) from Deposit d

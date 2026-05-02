@@ -84,8 +84,9 @@ public class BankIntegrationService {
 	}
 
 	public SubmitLoanResult submitLoan(InstallmentApplication app, Long staffId, String staffName, String idempotencyKey) {
+		String endpoint = null;
 		try {
-			String endpoint = requiredValue(properties.url(), "url");
+			endpoint = requiredValue(properties.url(), "url");
 			String apiKey = requiredValue(properties.apiKey(), "api-key");
 			String secret = requiredValue(properties.secret(), "secret");
 			String jsonPayload = objectMapper.writeValueAsString(buildLoanPayload(app));
@@ -110,14 +111,16 @@ public class BankIntegrationService {
 		} catch (BusinessException ex) {
 			throw ex;
 		} catch (Exception ex) {
-			saveAuditLog(staffId, staffName, app.getId(), false, ex.getMessage());
-			throw new CreditSyncException("Khong the ket noi credit-service: " + ex.getMessage(), true, null, ex.getMessage(), ex);
+			String detail = describeConnectionFailure(endpoint, ex);
+			saveAuditLog(staffId, staffName, app.getId(), false, detail);
+			throw new CreditSyncException("Khong the ket noi credit-service: " + detail, true, null, detail, ex);
 		}
 	}
 
 	public LoanStatusResult queryLoanStatus(String bankLoanId, String idempotencyKey) {
+		String endpoint = null;
 		try {
-			String endpoint = requiredValue(properties.statusEndpoint(), "status-endpoint");
+			endpoint = requiredValue(properties.statusEndpoint(), "status-endpoint");
 			String apiKey = requiredValue(properties.apiKey(), "api-key");
 			String secret = requiredValue(properties.secret(), "secret");
 
@@ -154,7 +157,8 @@ public class BankIntegrationService {
 		} catch (BusinessException ex) {
 			throw ex;
 		} catch (Exception ex) {
-			throw new CreditSyncException("Khong the ket noi credit-service khi query status: " + ex.getMessage(), true, null, ex.getMessage(), ex);
+			String detail = describeConnectionFailure(endpoint, ex);
+			throw new CreditSyncException("Khong the ket noi credit-service khi query status: " + detail, true, null, detail, ex);
 		}
 	}
 
@@ -297,6 +301,20 @@ public class BankIntegrationService {
 		}
 	}
 
+	private String describeConnectionFailure(String endpoint, Exception ex) {
+		String errorType = ex.getClass().getSimpleName();
+		String message = ex.getMessage();
+		if (message == null || message.isBlank()) {
+			Throwable cause = ex.getCause();
+			message = cause == null ? null : cause.getMessage();
+		}
+		if (message == null || message.isBlank()) {
+			message = "khong co chi tiet tu JVM";
+		}
+		String target = endpoint == null || endpoint.isBlank() ? "unknown endpoint" : endpoint;
+		return target + " -> " + errorType + ": " + message;
+	}
+
 	private Map<String, Object> buildLoanPayload(InstallmentApplication app) {
 		Map<String, Object> payload = new LinkedHashMap<>();
 		BigDecimal resolvedAmount = resolveAmount(app);
@@ -343,6 +361,8 @@ public class BankIntegrationService {
 				documentsPayload);
 
 		payload.put("customerName", fullName);
+		payload.put("externalId", app.getId() != null ? app.getId().toString() : null);
+		payload.put("applicationId", app.getId());
 		payload.put("customerEmail", email);
 		payload.put("customerPhone", phone);
 		payload.put("phone", phone);
@@ -428,6 +448,7 @@ public class BankIntegrationService {
 			Map<String, Object> documentsPayload) {
 		Map<String, Object> snapshot = new LinkedHashMap<>();
 		snapshot.put("id", app.getId());
+		snapshot.put("applicationId", app.getId());
 		snapshot.put("customerId", app.getCustomer() != null ? app.getCustomer().getId() : null);
 		snapshot.put("vehicleId", app.getVehicle() != null ? app.getVehicle().getId() : null);
 		snapshot.put("bankLoanId", safeTrim(app.getBankLoanId()));

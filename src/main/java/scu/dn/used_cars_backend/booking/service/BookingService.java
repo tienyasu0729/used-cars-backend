@@ -14,6 +14,7 @@ import scu.dn.used_cars_backend.booking.dto.BookingStatusHistoryItemDto;
 import scu.dn.used_cars_backend.booking.dto.AssignBookingStaffRequest;
 import scu.dn.used_cars_backend.booking.dto.ConfirmBookingRequest;
 import scu.dn.used_cars_backend.booking.dto.CreateBookingRequest;
+import scu.dn.used_cars_backend.booking.dto.CreateManagerBookingRequest;
 import scu.dn.used_cars_backend.booking.dto.RescheduleRequest;
 import scu.dn.used_cars_backend.booking.dto.ScheduleGroupResponse;
 import scu.dn.used_cars_backend.booking.entity.Booking;
@@ -33,6 +34,7 @@ import scu.dn.used_cars_backend.repository.DepositRepository;
 import scu.dn.used_cars_backend.repository.UserRepository;
 import scu.dn.used_cars_backend.repository.VehicleRepository;
 import scu.dn.used_cars_backend.service.InAppNotificationService;
+import scu.dn.used_cars_backend.service.ShowroomCustomerService;
 import scu.dn.used_cars_backend.service.StaffService;
 
 import java.time.LocalDate;
@@ -50,6 +52,8 @@ import java.util.Objects;
 public class BookingService {
 
 	private static final int NOTIFICATION_BODY_MAX_LEN = 1000;
+	private static final List<String> NO_SHOW_MANUAL_ALLOWED_STATUSES = List.of("Confirmed", "Rescheduled");
+	private static final List<String> NO_SHOW_AUTO_SOURCE_STATUSES = List.of("AwaitingContract", "Pending", "Confirmed", "Rescheduled");
 
 	private final BookingRepository bookingRepository;
 	private final BookingSlotRepository bookingSlotRepository;
@@ -61,74 +65,43 @@ public class BookingService {
 	private final UserRepository userRepository;
 	private final StaffService staffService;
 	private final InAppNotificationService inAppNotificationService;
+	private final ShowroomCustomerService showroomCustomerService;
 
 	@Transactional(rollbackFor = Exception.class)
 	public BookingResponse createBooking(CreateBookingRequest request, long customerId) {
 		LocalDate bookingDate = parseDate(request.getBookingDate());
 		LocalTime timeSlot = parseTime(request.getTimeSlot());
-		int branchId = request.getBranchId();
+		return createBookingInternal(
+				request.getVehicleId(),
+				request.getBranchId(),
+				bookingDate,
+				timeSlot,
+				trimToNull(request.getNote()),
+				customerId,
+				"AwaitingContract",
+				customerId,
+				null,
+				false);
+	}
 
-		Branch branch = branchRepository.findByIdAndDeletedFalse(branchId)
-				.orElseThrow(() -> new BusinessException(ErrorCode.BRANCH_NOT_FOUND, "Không tìm thấy chi nhánh."));
-
-		Vehicle vehicle = vehicleRepository.findAvailableForBooking(request.getVehicleId(),
-						VehicleStatus.AVAILABLE.getDbValue())
-				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_AVAILABLE, "Xe này hiện không thể đặt lịch."));
-		if (depositRepository.countByVehicleIdAndStatusIn(vehicle.getId(),
-				List.of("Pending", "Confirmed", "AwaitingPayment")) > 0) {
-			throw new BusinessException(ErrorCode.VEHICLE_NOT_AVAILABLE,
-					"Xe đang có cọc hoặc thanh toán đang xử lý — không đặt lịch lái thử.");
-		}
-		if (vehicle.getBranch() == null || vehicle.getBranch().getId() == null
-				|| vehicle.getBranch().getId() != branchId) {
-			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Xe không thuộc chi nhánh đã chọn.");
-		}
-
-		if (!openingHoursProvider.isWithinWorkingHours(branchId, bookingDate, timeSlot)) {
-			throw new BusinessException(ErrorCode.SLOT_NOT_FOUND, "Khung giờ ngoài giờ làm việc.");
-		}
-
-		BookingSlot lockedSlot = bookingSlotRepository.findActiveForUpdate(branchId, timeSlot)
-				.orElseThrow(() -> new BusinessException(ErrorCode.SLOT_NOT_FOUND, "Không tìm thấy khung giờ."));
-
-		long taken = bookingRepository.countAtBranchSlot(branchId, bookingDate, timeSlot,
-				BookingSlotCounting.BRANCH_OCCUPIED_STATUSES);
-		int max = lockedSlot.getMaxBookings() != null ? lockedSlot.getMaxBookings() : 0;
-		if (taken >= max) {
-			throw new BusinessException(ErrorCode.SLOT_FULLY_BOOKED, "Giờ này đã đầy, vui lòng chọn giờ khác.");
-		}
-
-		long vehicleTaken = bookingRepository.countAtVehicleSlot(vehicle.getId(), bookingDate, timeSlot,
-				BookingSlotCounting.VEHICLE_TRIPLE_OCCUPIED_STATUSES);
-		if (vehicleTaken > 0) {
-			throw new BusinessException(ErrorCode.VEHICLE_SLOT_TAKEN,
-					"Xe này đã có lịch hẹn trong khung giờ này. Vui lòng chọn giờ khác.");
-		}
-
-		Booking booking = new Booking();
-		booking.setCustomerId(customerId);
-		booking.setVehicle(vehicle);
-		booking.setBranch(branch);
-		booking.setBookingDate(bookingDate);
-		booking.setTimeSlot(timeSlot);
-		booking.setNote(trimToNull(request.getNote()));
-		booking.setStatus("AwaitingContract");
-
-		try {
-			booking = bookingRepository.saveAndFlush(booking);
-		}
-		catch (DataIntegrityViolationException ex) {
-			String cause = ex.getMostSpecificCause().getMessage();
-			if (cause != null && cause.contains("UQ_Bookings_VehicleSlot")) {
-				throw new BusinessException(ErrorCode.VEHICLE_SLOT_TAKEN,
-						"Xe này đã có lịch tại khung giờ này. Vui lòng chọn giờ khác.");
-			}
-			throw new BusinessException(ErrorCode.SLOT_FULLY_BOOKED, "Giờ này đã đầy, vui lòng chọn giờ khác.");
-		}
-
-		appendHistory(booking, null, "AwaitingContract", customerId, null);
-		Booking persisted = loadBookingWithDetails(booking.getId());
-		return toResponse(persisted, false);
+	@Transactional(rollbackFor = Exception.class)
+	public BookingResponse createManagerBooking(CreateManagerBookingRequest request, long actorUserId) {
+		long customerId = showroomCustomerService.findOrCreate(request.getCustomer());
+		LocalDate bookingDate = parseDate(request.getBookingDate());
+		LocalTime timeSlot = parseTime(request.getTimeSlot());
+		String type = trimToNull(request.getType());
+		String historyNote = type == null ? "Tạo lịch từ showroom" : "Tạo lịch từ showroom (" + type + ")";
+		return createBookingInternal(
+				request.getVehicleId(),
+				request.getBranchId(),
+				bookingDate,
+				timeSlot,
+				trimToNull(request.getNote()),
+				customerId,
+				"Pending",
+				actorUserId,
+				historyNote,
+				true);
 	}
 
 	@Transactional
@@ -301,6 +274,135 @@ public class BookingService {
 		bookingRepository.save(b);
 		appendHistory(b, old, "Completed", staffId, null);
 		return toResponse(b, false);
+	}
+
+	@Transactional
+	public BookingResponse completeTestDrive(long bookingId, long staffId) {
+		return completeBooking(bookingId, staffId);
+	}
+
+	@Transactional
+	public BookingResponse markNoShow(long bookingId, long actorUserId, boolean actorIsAdmin) {
+		Booking b = loadBookingWithDetails(bookingId);
+		if (!actorIsAdmin) {
+			int actorBranchId = staffService.resolveBranchIdForAdminOrBranchStaff(null, actorUserId, false);
+			if (b.getBranch().getId() != actorBranchId) {
+				throw new BusinessException(ErrorCode.BOOKING_ACCESS_DENIED, "Lịch hẹn không thuộc chi nhánh bạn quản lý.");
+			}
+			LocalDate today = LocalDate.now();
+			if (b.getBookingDate() != null && b.getBookingDate().isAfter(today)) {
+				throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION, "Chưa tới lịch hẹn, không thể đánh dấu NoShow.");
+			}
+		}
+		String old = b.getStatus();
+		if (!NO_SHOW_MANUAL_ALLOWED_STATUSES.contains(old)) {
+			throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
+					"Chỉ có thể đánh dấu NoShow cho lịch đã xác nhận hoặc đã đổi lịch.");
+		}
+		b.setStatus("NoShow");
+		bookingRepository.save(b);
+		appendHistory(b, old, "NoShow", actorUserId, "Đánh dấu khách không đến.");
+		return toResponse(b, false);
+	}
+
+	@Transactional
+	public int autoMarkOverdueBookingsAsNoShow(LocalDate bookingDate) {
+		if (bookingDate == null) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "bookingDate không được để trống.");
+		}
+		List<Long> ids = bookingRepository.findIdsByBookingDateLessThanEqualAndStatusIn(bookingDate,
+				NO_SHOW_AUTO_SOURCE_STATUSES);
+		int updated = 0;
+		for (Long id : ids) {
+			Booking b = loadBookingWithDetails(id);
+			String current = b.getStatus();
+			if (!NO_SHOW_AUTO_SOURCE_STATUSES.contains(current)) {
+				continue;
+			}
+			if (b.getBookingDate() == null || b.getBookingDate().isAfter(bookingDate)) {
+				continue;
+			}
+			b.setStatus("NoShow");
+			bookingRepository.save(b);
+			appendHistory(b, current, "NoShow", null, "[AUTO] Quá hạn lịch hẹn — hệ thống đánh dấu NoShow.");
+			updated++;
+		}
+		return updated;
+	}
+
+	private BookingResponse createBookingInternal(
+			Long vehicleId,
+			Integer branchId,
+			LocalDate bookingDate,
+			LocalTime timeSlot,
+			String note,
+			long customerId,
+			String initialStatus,
+			Long historyChangedBy,
+			String historyNote,
+			boolean notifyAfterCreate) {
+		Branch branch = branchRepository.findByIdAndDeletedFalse(branchId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.BRANCH_NOT_FOUND, "Không tìm thấy chi nhánh."));
+
+		Vehicle vehicle = vehicleRepository.findAvailableForBooking(vehicleId, VehicleStatus.AVAILABLE.getDbValue())
+				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_AVAILABLE, "Xe này hiện không thể đặt lịch."));
+		if (depositRepository.countByVehicleIdAndStatusIn(vehicle.getId(),
+				List.of("Pending", "Confirmed", "AwaitingPayment")) > 0) {
+			throw new BusinessException(ErrorCode.VEHICLE_NOT_AVAILABLE,
+					"Xe đang có cọc hoặc thanh toán đang xử lý — không đặt lịch lái thử.");
+		}
+		if (vehicle.getBranch() == null || vehicle.getBranch().getId() == null || vehicle.getBranch().getId() != branchId) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Xe không thuộc chi nhánh đã chọn.");
+		}
+
+		if (!openingHoursProvider.isWithinWorkingHours(branchId, bookingDate, timeSlot)) {
+			throw new BusinessException(ErrorCode.SLOT_NOT_FOUND, "Khung giờ ngoài giờ làm việc.");
+		}
+
+		BookingSlot lockedSlot = bookingSlotRepository.findActiveForUpdate(branchId, timeSlot)
+				.orElseThrow(() -> new BusinessException(ErrorCode.SLOT_NOT_FOUND, "Không tìm thấy khung giờ."));
+
+		long taken = bookingRepository.countAtBranchSlot(branchId, bookingDate, timeSlot,
+				BookingSlotCounting.BRANCH_OCCUPIED_STATUSES);
+		int max = lockedSlot.getMaxBookings() != null ? lockedSlot.getMaxBookings() : 0;
+		if (taken >= max) {
+			throw new BusinessException(ErrorCode.SLOT_FULLY_BOOKED, "Giờ này đã đầy, vui lòng chọn giờ khác.");
+		}
+
+		long vehicleTaken = bookingRepository.countAtVehicleSlot(vehicle.getId(), bookingDate, timeSlot,
+				BookingSlotCounting.VEHICLE_TRIPLE_OCCUPIED_STATUSES);
+		if (vehicleTaken > 0) {
+			throw new BusinessException(ErrorCode.VEHICLE_SLOT_TAKEN,
+					"Xe này đã có lịch hẹn trong khung giờ này. Vui lòng chọn giờ khác.");
+		}
+
+		Booking booking = new Booking();
+		booking.setCustomerId(customerId);
+		booking.setVehicle(vehicle);
+		booking.setBranch(branch);
+		booking.setBookingDate(bookingDate);
+		booking.setTimeSlot(timeSlot);
+		booking.setNote(note);
+		booking.setStatus(initialStatus);
+
+		try {
+			booking = bookingRepository.saveAndFlush(booking);
+		}
+		catch (DataIntegrityViolationException ex) {
+			String cause = ex.getMostSpecificCause().getMessage();
+			if (cause != null && cause.contains("UQ_Bookings_VehicleSlot")) {
+				throw new BusinessException(ErrorCode.VEHICLE_SLOT_TAKEN,
+						"Xe này đã có lịch tại khung giờ này. Vui lòng chọn giờ khác.");
+			}
+			throw new BusinessException(ErrorCode.SLOT_FULLY_BOOKED, "Giờ này đã đầy, vui lòng chọn giờ khác.");
+		}
+
+		appendHistory(booking, null, initialStatus, historyChangedBy, historyNote);
+		Booking persisted = loadBookingWithDetails(booking.getId());
+		if (notifyAfterCreate) {
+			notifyBranchStaffNewBooking(persisted);
+		}
+		return toResponse(persisted, false);
 	}
 
 	private Booking loadBookingWithDetails(long id) {

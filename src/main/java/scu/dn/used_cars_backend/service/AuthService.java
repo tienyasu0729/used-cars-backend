@@ -127,30 +127,35 @@ public class AuthService {
 	@Transactional
 	public RegisterResponse register(RegisterRequest request) {
 		String email = request.getEmail().trim().toLowerCase();
+		String phone = request.getPhone().trim();
 		Optional<User> existingOpt = userRepository.findActiveByEmailWithRoles(email);
 		if (existingOpt.isPresent()) {
 			User existing = existingOpt.get();
 			if (isClaimableShowroomUser(existing)) {
+				if (userRepository.existsByPhoneIgnoreCaseAndDeletedFalseAndIdNot(phone, existing.getId())) {
+					throw new BusinessException(ErrorCode.STAFF_PHONE_EXISTS, "Số điện thoại đã được sử dụng.");
+				}
 				existing.setPasswordHash(passwordEncoder.encode(request.getPassword()));
 				existing.setAuthProvider("local");
 				existing.setPasswordChangeRequired(false);
 				if (request.getName() != null && !request.getName().isBlank()) {
 					existing.setName(request.getName().trim());
 				}
-				if (request.getPhone() != null && !request.getPhone().isBlank()) {
-					existing.setPhone(request.getPhone().trim());
-				}
+				existing.setPhone(phone);
 				userRepository.save(existing);
 				return new RegisterResponse("Tài khoản đã được kích hoạt từ thông tin tại cửa hàng. Vui lòng đăng nhập.");
 			}
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Email đã được sử dụng.");
+		}
+		if (userRepository.existsByPhoneIgnoreCaseAndDeletedFalse(phone)) {
+			throw new BusinessException(ErrorCode.STAFF_PHONE_EXISTS, "Số điện thoại đã được sử dụng.");
 		}
 		Role customerRole = roleRepository.findByName(CUSTOMER_ROLE)
 				.orElseThrow(() -> new IllegalStateException("Vai trò Customer chưa được seed trong database."));
 		User user = new User();
 		user.setName(request.getName().trim());
 		user.setEmail(email);
-		user.setPhone(request.getPhone() != null ? request.getPhone().trim() : null);
+		user.setPhone(phone);
 		user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
 		user.setAuthProvider("local");
 		user.setStatus("active");

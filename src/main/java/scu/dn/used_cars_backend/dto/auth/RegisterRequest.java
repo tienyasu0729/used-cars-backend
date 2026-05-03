@@ -2,6 +2,7 @@ package scu.dn.used_cars_backend.dto.auth;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
@@ -17,7 +18,9 @@ public class RegisterRequest {
 	@Size(max = 255, message = "Email tối đa 255 ký tự.")
 	private String email;
 
+	@NotBlank(message = "Số điện thoại không được để trống.")
 	@Size(max = 20, message = "Số điện thoại tối đa 20 ký tự.")
+	@Pattern(regexp = "^0[0-9]{9}$", message = "Số điện thoại phải đúng 10 chữ số và bắt đầu bằng 0.")
 	private String phone;
 
 	@NotBlank(message = "Mật khẩu không được để trống.")

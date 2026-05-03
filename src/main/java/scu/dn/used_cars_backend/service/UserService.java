@@ -42,6 +42,9 @@ public class UserService {
 	@Transactional
 	public void updateProfile(long userId, UpdateProfileRequest request) {
 		User user = loadActiveUser(userId);
+		if (userRepository.existsByPhoneIgnoreCaseAndDeletedFalseAndIdNot(request.phone(), userId)) {
+			throw new BusinessException(ErrorCode.STAFF_PHONE_EXISTS, "Số điện thoại đã được sử dụng.");
+		}
 		// Đã strip + chuẩn hoá SĐT + validate trong UpdateProfileRequest (Bean Validation)
 		user.setName(request.name());
 		user.setPhone(request.phone());

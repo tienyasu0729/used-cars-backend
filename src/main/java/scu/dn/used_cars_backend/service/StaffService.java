@@ -155,16 +155,11 @@ public class StaffService {
 		assertNonAdminCannotMutateSameStaffRole(actorUserId, isAdmin, user);
 
 		user.setName(request.getName().trim());
-		String phone = request.getPhone();
-		if (phone == null || phone.isBlank()) {
-			user.setPhone(null);
-		} else {
-			String p = phone.trim();
-			if (userRepository.existsByPhoneIgnoreCaseAndDeletedFalseAndIdNot(p, staffId)) {
-				throw new BusinessException(ErrorCode.STAFF_PHONE_EXISTS, "Số điện thoại đã được sử dụng.");
-			}
-			user.setPhone(p);
+		String phone = request.getPhone().trim();
+		if (userRepository.existsByPhoneIgnoreCaseAndDeletedFalseAndIdNot(phone, staffId)) {
+			throw new BusinessException(ErrorCode.STAFF_PHONE_EXISTS, "Số điện thoại đã được sử dụng.");
 		}
+		user.setPhone(phone);
 		userRepository.save(user);
 		return toListItem(user, loadBranchNameMap());
 	}

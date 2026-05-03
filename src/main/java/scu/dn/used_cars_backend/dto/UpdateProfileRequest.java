@@ -19,10 +19,11 @@ public record UpdateProfileRequest(
 				regexp = "(?U)^[\\p{L}\\p{M}0-9\\s.'’\\-]{2,100}$",
 				message = "Họ tên chỉ gồm chữ cái (có dấu), số, khoảng trắng và các ký tự . ' - .")
 		String name,
+		@NotBlank(message = "Số điện thoại không được để trống.")
 		@Size(max = 20, message = "Số điện thoại tối đa 20 ký tự (trước khi chuẩn hoá).")
 		@Pattern(
-				regexp = "^$|^0[0-9]{9}$",
-				message = "Số điện thoại phải đúng 10 chữ số và bắt đầu bằng 0 (hoặc để trống).")
+				regexp = "^0[0-9]{9}$",
+				message = "Số điện thoại phải đúng 10 chữ số và bắt đầu bằng 0.")
 		String phone,
 		@Size(max = 500, message = "Địa chỉ tối đa 500 ký tự.")
 		@Pattern(

@@ -34,6 +34,7 @@ import scu.dn.used_cars_backend.repository.VehicleTransmissionRepository;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -156,8 +157,9 @@ public class AdminCatalogService {
 		subcategoryRepository.save(s);
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional
 	public List<AdminCatalogTypedOptionDto> listFuelTypes() {
+		bootstrapFuelTypesFromVehiclesIfEmpty();
 		List<AdminCatalogTypedOptionDto> out = new ArrayList<>();
 		for (VehicleFuelType f : vehicleFuelTypeRepository.findAllByOrderByNameAsc()) {
 			long c = vehicleRepository.countActiveByFuelLabel(f.getName());
@@ -171,8 +173,9 @@ public class AdminCatalogService {
 		return out;
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional
 	public List<AdminCatalogTypedOptionDto> listTransmissions() {
+		bootstrapTransmissionsFromVehiclesIfEmpty();
 		List<AdminCatalogTypedOptionDto> out = new ArrayList<>();
 		for (VehicleTransmission t : vehicleTransmissionRepository.findAllByOrderByNameAsc()) {
 			long c = vehicleRepository.countActiveByTransmissionLabel(t.getName());
@@ -265,6 +268,62 @@ public class AdminCatalogService {
 			return null;
 		}
 		return q.trim();
+	}
+
+	private void bootstrapFuelTypesFromVehiclesIfEmpty() {
+		if (vehicleFuelTypeRepository.count() > 0) {
+			return;
+		}
+		List<String> labels = uniqueNormalizedLabels(vehicleRepository.findDistinctActiveFuelLabels());
+		if (labels.isEmpty()) {
+			return;
+		}
+		List<VehicleFuelType> entities = new ArrayList<>(labels.size());
+		for (String label : labels) {
+			VehicleFuelType fuelType = new VehicleFuelType();
+			fuelType.setName(label);
+			fuelType.setStatus("active");
+			entities.add(fuelType);
+		}
+		vehicleFuelTypeRepository.saveAll(entities);
+	}
+
+	private void bootstrapTransmissionsFromVehiclesIfEmpty() {
+		if (vehicleTransmissionRepository.count() > 0) {
+			return;
+		}
+		List<String> labels = uniqueNormalizedLabels(vehicleRepository.findDistinctActiveTransmissionLabels());
+		if (labels.isEmpty()) {
+			return;
+		}
+		List<VehicleTransmission> entities = new ArrayList<>(labels.size());
+		for (String label : labels) {
+			VehicleTransmission transmission = new VehicleTransmission();
+			transmission.setName(label);
+			transmission.setStatus("active");
+			entities.add(transmission);
+		}
+		vehicleTransmissionRepository.saveAll(entities);
+	}
+
+	private static List<String> uniqueNormalizedLabels(List<String> rawLabels) {
+		Map<String, String> deduped = new LinkedHashMap<>();
+		for (String raw : rawLabels) {
+			String normalized = normalizeCatalogLabel(raw);
+			if (normalized == null) {
+				continue;
+			}
+			deduped.putIfAbsent(normalized.toLowerCase(Locale.ROOT), normalized);
+		}
+		return new ArrayList<>(deduped.values());
+	}
+
+	private static String normalizeCatalogLabel(String raw) {
+		if (raw == null) {
+			return null;
+		}
+		String normalized = raw.trim();
+		return normalized.isEmpty() ? null : normalized;
 	}
 
 	private static Map<Integer, Long> toCountMap(List<Object[]> rows) {

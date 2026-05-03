@@ -6,7 +6,7 @@ param(
     [string]$SqlPassword        = "123456",
     [string]$RedisHost          = "localhost",
     [int]   $RedisPort          = 6379,
-    [string]$RedisContainerName = "used-cars-redis",
+    [string]$RedisContainerName = "redis",
     [string]$RedisImage         = "redis:7-alpine"
 )
 
@@ -41,6 +41,32 @@ function Wait-TcpPort {
     }
     Write-Host "$ServiceName did not become ready within ${TimeoutSec}s." -ForegroundColor Red
     return $false
+}
+
+# Helper: Redis san sang khi redis-cli ping trong container tra ve PONG
+function Wait-RedisReady {
+    param(
+        [string]$ContainerName,
+        [string]$HostName,
+        [int]   $Port,
+        [int]   $TimeoutSec = 20
+    )
+
+    Write-Host "Waiting for Redis readiness (container ping) ..." -ForegroundColor Cyan
+    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline) {
+        $pong = (docker exec $ContainerName redis-cli ping 2>$null)
+        $pong = "$pong".Trim()
+        if ($LASTEXITCODE -eq 0 -and $pong -eq "PONG") {
+            Write-Host "Redis is ready (PONG)." -ForegroundColor Green
+            return $true
+        }
+        Start-Sleep -Seconds 2
+    }
+
+    Write-Host "Redis container ping did not return PONG within ${TimeoutSec}s." -ForegroundColor Yellow
+    Write-Host "Falling back to TCP check at ${HostName}:${Port} ..." -ForegroundColor Yellow
+    return (Wait-TcpPort -HostName $HostName -Port $Port -ServiceName "Redis" -TimeoutSec 10)
 }
 
 # ============================================================
@@ -142,7 +168,7 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "Redis container '$RedisContainerName' is already running." -ForegroundColor Green
 }
 
-if (-not (Wait-TcpPort -HostName $RedisHost -Port $RedisPort -ServiceName "Redis" -TimeoutSec 20)) {
+if (-not (Wait-RedisReady -ContainerName $RedisContainerName -HostName $RedisHost -Port $RedisPort -TimeoutSec 20)) {
     exit 1
 }
 

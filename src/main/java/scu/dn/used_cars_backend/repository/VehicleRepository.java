@@ -164,6 +164,24 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 			""")
 	long countActiveByTransmissionLabel(@Param("label") String label);
 
+	@Query("""
+			select distinct trim(v.fuel) from Vehicle v
+			where v.deleted = false
+			and v.fuel is not null
+			and trim(v.fuel) <> ''
+			order by trim(v.fuel) asc
+			""")
+	List<String> findDistinctActiveFuelLabels();
+
+	@Query("""
+			select distinct trim(v.transmission) from Vehicle v
+			where v.deleted = false
+			and v.transmission is not null
+			and trim(v.transmission) <> ''
+			order by trim(v.transmission) asc
+			""")
+	List<String> findDistinctActiveTransmissionLabels();
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select v from Vehicle v where v.id = :id and v.deleted = false")
 	Optional<Vehicle> findByIdAndDeletedFalseForUpdate(@Param("id") Long id);

@@ -1,0 +1,140 @@
+spring:
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 12MB
+
+  datasource:
+    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+    url: jdbc:sqlserver://${DB_HOST:host.docker.internal}:${DB_PORT:1433};databaseName=${DB_NAME:usedCars};encrypt=${DB_ENCRYPT:false};trustServerCertificate=${DB_TRUST_SERVER_CERTIFICATE:true};sendTimeAsDatetime=false
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:change-me}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+    open-in-view: false
+    properties:
+      hibernate.type.preferred_instant_jdbc_type: TIMESTAMP
+      hibernate:
+        dialect: org.hibernate.dialect.SQLServerDialect
+        format_sql: true
+
+  data:
+    redis:
+      host: ${REDIS_HOST:host.docker.internal}
+      port: ${REDIS_PORT:6379}
+      timeout: ${REDIS_TIMEOUT:2000ms}
+
+  flyway:
+    enabled: ${FLYWAY_ENABLED:false}
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    ignore-missing-migrations: true
+
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+          ssl:
+            trust: ${MAIL_SSL_TRUST:smtp.gmail.com}
+            protocols: ${MAIL_SSL_PROTOCOLS:TLSv1.2}
+
+server:
+  port: ${SERVER_PORT:8080}
+
+logging:
+  level:
+    scu.dn.used_cars_backend.service.payment: ${PAYMENT_LOG_LEVEL:DEBUG}
+
+app:
+  timezone: ${APP_TIMEZONE:Asia/Saigon}
+
+  security:
+    cors:
+      allowed-origin-patterns:
+        - ${CORS_ALLOWED_ORIGIN_1:https://your-domain.example}
+        - ${CORS_ALLOWED_ORIGIN_2:http://your-domain.example}
+    rate-limit:
+      enabled: ${RATE_LIMIT_ENABLED:true}
+      requests-per-minute: ${RATE_LIMIT_REQUESTS_PER_MINUTE:60}
+    webhook:
+      vnpay-allow-cidrs: []
+      zalopay-allow-cidrs: []
+
+  mail:
+    from: ${MAIL_FROM:}
+
+  jwt:
+    secret: ${APP_JWT_SECRET:change-me-to-a-256-bit-secret}
+    expiration-ms: ${APP_JWT_EXPIRATION_MS:86400000}
+
+  google:
+    client-id: ${GOOGLE_CLIENT_ID:}
+
+  cloudinary:
+    cloud-name: ${CLOUDINARY_CLOUD_NAME:}
+    api-key: ${CLOUDINARY_API_KEY:}
+    api-secret: ${CLOUDINARY_API_SECRET:}
+
+  cloudinary-docs:
+    cloud-name: ${CLOUDINARY_DOCS_CLOUD_NAME:}
+    api-key: ${CLOUDINARY_DOCS_API_KEY:}
+    api-secret: ${CLOUDINARY_DOCS_API_SECRET:}
+
+  credit-service:
+    url: ${CREDIT_SERVICE_URL:https://credit-service-n2s5.onrender.com/api/loan/apply}
+    status-endpoint: ${CREDIT_SERVICE_STATUS_ENDPOINT:https://credit-service-n2s5.onrender.com/api/loan/status}
+    api-key: ${CREDIT_SERVICE_API_KEY:}
+    secret: ${CREDIT_SERVICE_SECRET:}
+    api-secret: ${CREDIT_SERVICE_API_SECRET:}
+    timeout-ms: ${CREDIT_SERVICE_TIMEOUT_MS:10000}
+    connect-timeout-ms: ${CREDIT_SERVICE_CONNECT_TIMEOUT_MS:3000}
+    retry:
+      fixed-delay-ms: ${CREDIT_SERVICE_RETRY_FIXED_DELAY_MS:15000}
+      base-delay-ms: ${CREDIT_SERVICE_RETRY_BASE_DELAY_MS:5000}
+      max-delay-ms: ${CREDIT_SERVICE_RETRY_MAX_DELAY_MS:900000}
+      batch-size: ${CREDIT_SERVICE_RETRY_BATCH_SIZE:20}
+
+  order:
+    pending-timeout-hours: ${ORDER_PENDING_TIMEOUT_HOURS:24}
+
+  installment:
+    pre-deposit-percent: ${INSTALLMENT_PRE_DEPOSIT_PERCENT:10}
+
+  payment:
+    frontend-base-url: ${PAYMENT_FRONTEND_BASE_URL:https://your-domain.example}
+    vnpay:
+      enabled: ${VNPAY_ENABLED:true}
+      tmn-code: ${VNPAY_TMN_CODE:}
+      hash-secret: ${VNPAY_HASH_SECRET:}
+      pay-url: ${VNPAY_PAY_URL:https://sandbox.vnpayment.vn/paymentv2/vpcpay.html}
+      return-url: ${VNPAY_RETURN_URL:https://your-domain.example/api/v1/payment/vnpay/return}
+      ipn-url: ${VNPAY_IPN_URL:https://your-domain.example/api/v1/payment/vnpay/ipn}
+      merchant-api-url: ${VNPAY_MERCHANT_API_URL:}
+      customer-ip-fallback: ${VNPAY_CUSTOMER_IP_FALLBACK:}
+      order-type: ${VNPAY_ORDER_TYPE:}
+      hmac-algorithm: ${VNPAY_HMAC_ALGORITHM:}
+    zalopay:
+      enabled: ${ZALOPAY_ENABLED:true}
+      app-id: ${ZALOPAY_APP_ID:}
+      key1: ${ZALOPAY_KEY1:}
+      key2: ${ZALOPAY_KEY2:}
+      endpoint: ${ZALOPAY_ENDPOINT:https://sb-openapi.zalopay.vn/v2/create}
+      callback-url: ${ZALOPAY_CALLBACK_URL:https://your-domain.example/api/v1/payment/zalopay/callback}
+
+  pricing:
+    enabled: ${PRICING_ENABLED:false}
+    base-url: ${PRICING_BASE_URL:http://host.docker.internal:8000}
+    estimate-path: ${PRICING_ESTIMATE_PATH:/internal/vehicle-pricing/estimate}
+    internal-token: ${PRICING_INTERNAL_TOKEN:pricing_internal_local_token}

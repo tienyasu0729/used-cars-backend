@@ -1,0 +1,9 @@
+.git
+.gitignore
+.agent
+.cursor
+.codex
+target
+docs
+HELP.md
+src/main/resources/application*.yml

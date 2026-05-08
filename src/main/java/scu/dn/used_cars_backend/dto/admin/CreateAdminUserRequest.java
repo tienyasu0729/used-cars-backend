@@ -1,0 +1,36 @@
+package scu.dn.used_cars_backend.dto.admin;
+
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
+import lombok.Data;
+
+@Data
+public class CreateAdminUserRequest {
+
+	@NotBlank(message = "Họ tên không được để trống.")
+	@Size(max = 100, message = "Họ tên tối đa 100 ký tự.")
+	private String name;
+
+	@NotBlank(message = "Email không được để trống.")
+	@Email(message = "Email không hợp lệ.")
+	@Size(max = 255, message = "Email tối đa 255 ký tự.")
+	private String email;
+
+	@NotBlank(message = "Số điện thoại không được để trống.")
+	@Size(max = 20, message = "Số điện thoại tối đa 20 ký tự.")
+	@Pattern(regexp = "^0[0-9]{9}$", message = "Số điện thoại phải đúng 10 chữ số và bắt đầu bằng 0.")
+	private String phone;
+
+	@NotBlank(message = "Mật khẩu không được để trống.")
+	@Size(min = 8, max = 100, message = "Mật khẩu từ 8 đến 100 ký tự.")
+	private String password;
+
+	/** Customer, SalesStaff, BranchManager, Admin */
+	@NotBlank(message = "Vai trò không được để trống.")
+	@Size(max = 50, message = "Vai trò không hợp lệ.")
+	private String role;
+
+	private Integer branchId;
+}

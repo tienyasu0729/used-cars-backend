@@ -1,0 +1,21 @@
+package scu.dn.used_cars_backend.dto.branch;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+/** Thông tin hiển thị công khai trên trang chi nhánh (không email). */
+@Data
+@Builder
+@AllArgsConstructor
+@NoArgsConstructor
+public class BranchTeamMemberDto {
+
+	/** Dùng cho chat / gán nghiệp vụ — công khai nhưng cần id hợp lệ. */
+	private Long userId;
+	private String name;
+	private String role;
+	/** URL ảnh đại diện (Cloudinary hoặc URL tuyệt đối) hoặc null. */
+	private String avatarUrl;
+}

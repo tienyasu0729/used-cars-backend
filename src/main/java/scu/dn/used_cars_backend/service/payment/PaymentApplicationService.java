@@ -1,0 +1,1032 @@
+package scu.dn.used_cars_backend.service.payment;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import scu.dn.used_cars_backend.common.exception.BusinessException;
+import scu.dn.used_cars_backend.common.exception.ErrorCode;
+import scu.dn.used_cars_backend.dto.payment.OrderPaymentStaffRowDto;
+import scu.dn.used_cars_backend.dto.payment.PaymentCreateRequest;
+import scu.dn.used_cars_backend.dto.payment.PaymentUrlResponse;
+import scu.dn.used_cars_backend.dto.payment.VnpayClientReturnPayload;
+import scu.dn.used_cars_backend.dto.payment.ZaloPayReturnPayload;
+import scu.dn.used_cars_backend.dto.payment.ZaloPayStatusResponse;
+import scu.dn.used_cars_backend.entity.Deposit;
+import scu.dn.used_cars_backend.entity.FinancialTransaction;
+import scu.dn.used_cars_backend.entity.OrderPayment;
+import scu.dn.used_cars_backend.entity.SalesOrder;
+import scu.dn.used_cars_backend.entity.Vehicle;
+import scu.dn.used_cars_backend.entity.VehicleStatus;
+import scu.dn.used_cars_backend.repository.DepositRepository;
+import scu.dn.used_cars_backend.repository.FinancialTransactionRepository;
+import scu.dn.used_cars_backend.repository.InstallmentApplicationRepository;
+import scu.dn.used_cars_backend.repository.OrderPaymentRepository;
+import scu.dn.used_cars_backend.repository.SalesOrderRepository;
+import scu.dn.used_cars_backend.repository.VehicleRepository;
+import scu.dn.used_cars_backend.service.DepositService;
+import scu.dn.used_cars_backend.service.StaffService;
+import scu.dn.used_cars_backend.service.VehicleService;
+
+import java.math.BigDecimal;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.TreeMap;
+
+@Service
+@RequiredArgsConstructor
+public class PaymentApplicationService {
+
+	private static final Logger log = LoggerFactory.getLogger(PaymentApplicationService.class);
+	private static final ZoneId VN = ZoneId.of("Asia/Ho_Chi_Minh");
+	private static final DateTimeFormatter YYMMDD = DateTimeFormatter.ofPattern("yyMMdd");
+
+	private final SalesOrderRepository salesOrderRepository;
+	private final OrderPaymentRepository orderPaymentRepository;
+	private final DepositRepository depositRepository;
+	private final FinancialTransactionRepository financialTransactionRepository;
+	private final InstallmentApplicationRepository installmentApplicationRepository;
+	private final PaymentGatewayConfigService paymentGatewayConfigService;
+	private final VnpayService vnpayService;
+	private final VnpayMerchantApiService vnpayMerchantApiService;
+	private final ZaloPayService zaloPayService;
+	private final ObjectMapper objectMapper;
+	private final StaffService staffService;
+	private final DepositService depositService;
+	private final VehicleRepository vehicleRepository;
+	private final VehicleService vehicleService;
+	private final WebhookIpAllowlistService webhookIpAllowlistService;
+	private final scu.dn.used_cars_backend.repository.UserRepository userRepository;
+	private final scu.dn.used_cars_backend.service.EmailNotificationService emailNotificationService;
+	private final scu.dn.used_cars_backend.service.InAppNotificationService inAppNotificationService;
+
+	@Transactional
+	public PaymentUrlResponse createVnpay(long userId, PaymentCreateRequest req, String clientIp) {
+		return createVnpay(userId, false, req, clientIp);
+	}
+
+	@Transactional
+	public PaymentUrlResponse createVnpay(long userId, boolean isStaff, PaymentCreateRequest req, String clientIp) {
+		SalesOrder order = loadOrderAndAssertActor(req.getOrderId(), userId, isStaff);
+		assertPayableAmount(order, req.getAmount());
+		var cfg = paymentGatewayConfigService.loadVnpayForCreate();
+		String txnRef = "U" + order.getId() + "T" + Long.toHexString(System.nanoTime());
+		OrderPayment pay = new OrderPayment();
+		pay.setOrder(order);
+		pay.setAmount(req.getAmount());
+		pay.setPaymentMethod("vnpay");
+		pay.setTransactionRef(txnRef);
+		pay.setStatus("Pending");
+		String info = "Thanh toan don hang id " + order.getId();
+		VnpayService.VnpayPayUrlResult built = vnpayService.buildPaymentUrl(cfg, txnRef, req.getAmount(), info,
+				clientIp);
+		pay.setVnpPayCreateDate(built.vnpCreateDate());
+		orderPaymentRepository.save(pay);
+		String paymentUrl = built.paymentUrl();
+
+		// Neu staff tao link -> gui email chua link thanh toan cho khach
+		if (isStaff) {
+			sendPaymentLinkEmailToCustomer(order, paymentUrl, "VNPay");
+		}
+
+		return new PaymentUrlResponse(paymentUrl);
+	}
+
+	@Transactional
+	public PaymentUrlResponse createZaloPay(long userId, PaymentCreateRequest req) {
+		return createZaloPay(userId, false, req);
+	}
+
+	@Transactional
+	public PaymentUrlResponse createZaloPay(long userId, boolean isStaff, PaymentCreateRequest req) {
+		SalesOrder order = loadOrderAndAssertActor(req.getOrderId(), userId, isStaff);
+		assertPayableAmount(order, req.getAmount());
+		var cfg = paymentGatewayConfigService.loadZaloPayForCreate();
+		String appTransId = LocalDate.now(VN).format(YYMMDD) + "_" + order.getId() + "_"
+				+ Long.toHexString(System.nanoTime());
+		String transId = appTransId.length() <= 40 ? appTransId : appTransId.substring(0, 40);
+		OrderPayment pay = new OrderPayment();
+		pay.setOrder(order);
+		pay.setAmount(req.getAmount());
+		pay.setPaymentMethod("zalopay");
+		pay.setTransactionRef(transId);
+		pay.setStatus("Pending");
+		orderPaymentRepository.save(pay);
+		String base = paymentGatewayConfigService.frontendBaseUrl().replaceAll("/$", "");
+		String redirect = base + "/payment/result?kind=zalo_order&orderId=" + order.getId();
+		String embed;
+		try {
+			embed = objectMapper.writeValueAsString(Map.of("redirecturl", redirect));
+		} catch (JsonProcessingException e) {
+			throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "Không tạo embed_data ZaloPay.");
+		}
+		String orderUrl = zaloPayService.createOrderAndGetPayUrl(cfg, transId, req.getAmount().longValueExact(),
+				String.valueOf(userId), "Thanh toan don " + order.getOrderNumber(), embed);
+		if (orderUrl == null || orderUrl.isBlank()) {
+			throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "ZaloPay thieu order_url.");
+		}
+
+		// Neu staff tao link -> gui email chua link thanh toan cho khach
+		if (isStaff) {
+			sendPaymentLinkEmailToCustomer(order, orderUrl, "ZaloPay");
+		}
+
+		return new PaymentUrlResponse(orderUrl);
+	}
+
+	@Transactional
+	public void cancelPendingOrderPayment(long orderPaymentId) {
+		OrderPayment p = orderPaymentRepository.findById(orderPaymentId).orElse(null);
+		if (p == null || !"Pending".equals(p.getStatus())) {
+			return;
+		}
+		p.setStatus("Failed");
+		orderPaymentRepository.save(p);
+		orderPaymentRepository.flush();
+		log.info("OrderPayment {} marked Failed (pending online payment closed)", orderPaymentId);
+	}
+
+	@Transactional
+	public void cancelPendingOrderPaymentByTransactionRef(String transactionRef) {
+		if (transactionRef == null || transactionRef.isBlank()) {
+			return;
+		}
+		orderPaymentRepository.findByTransactionRef(transactionRef.trim())
+				.ifPresent(x -> cancelPendingOrderPayment(x.getId()));
+	}
+
+	@Transactional
+	public void customerCancelPendingOrderPayment(long userId, long orderPaymentId) {
+		OrderPayment p = orderPaymentRepository.findByIdWithOrderAndBranch(orderPaymentId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "Khong tim thay thanh toan."));
+		SalesOrder o = p.getOrder();
+		if (o.getCustomerId() == null || o.getCustomerId() != userId) {
+			throw new BusinessException(ErrorCode.PAYMENT_FORBIDDEN, "Khong co quyen huy giao dich nay.");
+		}
+		cancelPendingOrderPayment(orderPaymentId);
+	}
+
+	@Transactional(readOnly = true)
+	public List<Long> findPendingOnlineOrderPaymentIdsExpiredBefore(Instant cutoff) {
+		return orderPaymentRepository.findPendingOnlineOrderPaymentIdsCreatedBefore(cutoff);
+	}
+
+	public Optional<String> tryCompleteVnpay(Map<String, String> params) {
+		var cfg = paymentGatewayConfigService.loadVnpayForVerify();
+		if (!vnpayService.verifySignature(params, cfg.hashSecret())) {
+			return Optional.of("INVALID_SIGNATURE");
+		}
+		if (!cfg.tmnCode().equals(params.get("vnp_TmnCode"))) {
+			return Optional.of("INVALID_TMNCODE");
+		}
+		String txnRef = params.get("vnp_TxnRef");
+		if (txnRef == null || txnRef.isBlank()) {
+			return Optional.of("MISSING_TXN");
+		}
+		OrderPayment p = orderPaymentRepository.findByTransactionRef(txnRef).orElse(null);
+		if (p != null) {
+			if ("Completed".equals(p.getStatus())) {
+				return Optional.empty();
+			}
+			if (!"Pending".equals(p.getStatus())) {
+				return Optional.of("NOT_SUCCESS");
+			}
+			String amountStr = params.get("vnp_Amount");
+			if (amountStr == null) {
+				return Optional.of("MISSING_AMOUNT");
+			}
+			BigDecimal paid = BigDecimal.valueOf(Long.parseLong(amountStr)).divide(BigDecimal.valueOf(100));
+			if (paid.compareTo(p.getAmount()) != 0) {
+				return Optional.of("AMOUNT_MISMATCH");
+			}
+			if (!"00".equals(params.get("vnp_TransactionStatus"))) {
+				cancelPendingOrderPayment(p.getId());
+				return Optional.of("NOT_SUCCESS");
+			}
+			if (!"00".equals(params.get("vnp_ResponseCode"))) {
+				cancelPendingOrderPayment(p.getId());
+				return Optional.of("RESP_" + params.get("vnp_ResponseCode"));
+			}
+			completePaymentAndOrder(p, "vnpay", params.get("vnp_TransactionNo"));
+			return Optional.empty();
+		}
+		Deposit d = depositRepository.findByGatewayTxnRef(txnRef).orElse(null);
+		if (d == null) {
+			return Optional.of("NOT_FOUND");
+		}
+		// Xu ly ca Pending va AwaitingPayment
+		if (!"Pending".equals(d.getStatus()) && !"AwaitingPayment".equals(d.getStatus())) {
+			return Optional.empty();
+		}
+		if (!"vnpay".equalsIgnoreCase(d.getPaymentMethod())) {
+			return Optional.of("METHOD_MISMATCH");
+		}
+		String amountStrDep = params.get("vnp_Amount");
+		if (amountStrDep == null) {
+			return Optional.of("MISSING_AMOUNT");
+		}
+		BigDecimal paidDep = BigDecimal.valueOf(Long.parseLong(amountStrDep)).divide(BigDecimal.valueOf(100));
+		if (paidDep.compareTo(d.getAmount()) != 0) {
+			return Optional.of("AMOUNT_MISMATCH");
+		}
+		if (!"00".equals(params.get("vnp_TransactionStatus"))) {
+			depositService.cancelPendingDepositAfterOnlinePaymentDeclined(d.getId());
+			return Optional.of("NOT_SUCCESS");
+		}
+		if (!"00".equals(params.get("vnp_ResponseCode"))) {
+			depositService.cancelPendingDepositAfterOnlinePaymentDeclined(d.getId());
+			return Optional.of("RESP_" + params.get("vnp_ResponseCode"));
+		}
+		completeDepositAfterOnlinePayment(d, params.get("vnp_TransactionNo"));
+		return Optional.empty();
+	}
+
+	@Transactional(readOnly = true)
+	public JsonNode staffQueryVnpay(long actorUserId, boolean isAdmin, long orderPaymentId, String serverIp) {
+		OrderPayment p = orderPaymentRepository.findByIdWithOrderAndBranch(orderPaymentId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "Khong tim thay thanh toan."));
+		if (!"vnpay".equalsIgnoreCase(p.getPaymentMethod())) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Chi ho tro thanh toan VNPay.");
+		}
+		assertActorCanAccessOrder(actorUserId, isAdmin, p.getOrder());
+		String payCreate = p.getVnpPayCreateDate();
+		if (payCreate == null || payCreate.isBlank()) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+					"Thieu vnp_pay_create_date — giao dich tao truoc khi cap nhat he thong.");
+		}
+		var cfg = paymentGatewayConfigService.loadVnpayForMerchantApi();
+		String reqId = VnpayMerchantApiService.newRequestId();
+		var raw = vnpayMerchantApiService.queryDr(cfg, reqId, p.getTransactionRef(), payCreate.trim(),
+				null, p.getVnpGatewayTransactionNo(), serverIp);
+		return vnpayMerchantApiService.stripSecureHash(raw);
+	}
+
+	@Transactional
+	public JsonNode staffRefundVnpay(long actorUserId, boolean isAdmin, long orderPaymentId, String serverIp,
+			String createBy, String orderInfo) {
+		OrderPayment p = orderPaymentRepository.findByIdWithOrderAndBranch(orderPaymentId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "Khong tim thay thanh toan."));
+		if (!"vnpay".equalsIgnoreCase(p.getPaymentMethod())) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Chi ho tro thanh toan VNPay.");
+		}
+		assertActorCanAccessOrder(actorUserId, isAdmin, p.getOrder());
+		if (!"Completed".equals(p.getStatus())) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Chi hoan tien khi thanh toan da Completed.");
+		}
+		if (p.getVnpLastRefundRequestId() != null && !p.getVnpLastRefundRequestId().isBlank()) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+					"Giao dich da co yeu cau hoan tien truoc do.");
+		}
+		String payCreate = p.getVnpPayCreateDate();
+		if (payCreate == null || payCreate.isBlank()) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+					"Thieu vnp_pay_create_date — khong the hoan tien.");
+		}
+		long amountMinor = p.getAmount().multiply(java.math.BigDecimal.valueOf(100)).longValueExact();
+		var cfg = paymentGatewayConfigService.loadVnpayForMerchantApi();
+		String reqId = VnpayMerchantApiService.newRequestId();
+		var resp = vnpayMerchantApiService.refund(cfg, reqId, p.getTransactionRef(), amountMinor, "02",
+				payCreate.trim(), p.getVnpGatewayTransactionNo(), createBy, orderInfo, serverIp);
+		String rc = resp.path("vnp_ResponseCode").asText("");
+		if ("00".equals(rc)) {
+			p.setStatus("Refunded");
+			p.setVnpLastRefundRequestId(reqId);
+			orderPaymentRepository.save(p);
+			// Ghi row Refund vao Transactions khi hoan tien VNPay OrderPayment thanh cong
+			FinancialTransaction refTx = new FinancialTransaction();
+			refTx.setUserId(p.getOrder().getCustomerId());
+			refTx.setType("Refund");
+			refTx.setAmount(p.getAmount());
+			refTx.setStatus("Completed");
+			refTx.setDescription("Hoan tien VNPay OrderPayment #" + p.getId());
+			refTx.setReferenceId(p.getId());
+			refTx.setReferenceType("OrderPayment");
+			refTx.setPaymentGateway("vnpay");
+			financialTransactionRepository.save(refTx);
+		} else if ("94".equals(rc)) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+					"VNPay: da gui yeu cau hoan tien truoc do (94).");
+		} else {
+			String msg = resp.path("vnp_Message").asText(rc);
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "VNPay: " + msg);
+		}
+		return vnpayMerchantApiService.stripSecureHash(resp);
+	}
+
+	@Transactional(readOnly = true)
+	public List<OrderPaymentStaffRowDto> listPaymentsForStaffOrder(long actorUserId, boolean isAdmin, long orderId) {
+		SalesOrder order = salesOrderRepository.findByIdWithBranch(orderId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "Khong tim thay don."));
+		assertActorCanAccessOrder(actorUserId, isAdmin, order);
+		return orderPaymentRepository.findByOrderIdWithOrderAndBranch(orderId).stream().map(this::toStaffPaymentRow)
+				.toList();
+	}
+
+	@Transactional(readOnly = true)
+	public List<OrderPaymentStaffRowDto> listPaymentsForCustomer(long customerUserId, long orderId) {
+		SalesOrder order = salesOrderRepository.findByIdWithBranch(orderId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "Khong tim thay don."));
+		if (order.getCustomerId() == null || order.getCustomerId() != customerUserId) {
+			throw new BusinessException(ErrorCode.PAYMENT_FORBIDDEN, "Khong co quyen xem thanh toan don nay.");
+		}
+		return orderPaymentRepository.findByOrderIdWithOrderAndBranch(orderId).stream().map(this::toStaffPaymentRow)
+				.toList();
+	}
+
+	private OrderPaymentStaffRowDto toStaffPaymentRow(OrderPayment p) {
+		return new OrderPaymentStaffRowDto(p.getId(), p.getPaymentMethod(), p.getStatus(), p.getAmount(),
+				p.getTransactionRef(), p.getVnpPayCreateDate(), p.getVnpGatewayTransactionNo(),
+				p.getVnpLastRefundRequestId());
+	}
+
+	private void assertActorCanAccessOrder(long actorUserId, boolean isAdmin, SalesOrder order) {
+		if (isAdmin) {
+			return;
+		}
+		int bid = staffService.getManagerBranchId(actorUserId);
+		if (order.getBranch().getId() != bid) {
+			throw new BusinessException(ErrorCode.PAYMENT_FORBIDDEN, "Khong co quyen thao tac thanh toan nay.");
+		}
+	}
+
+	@Transactional
+	public VnpayClientReturnPayload completeVnpayReturnAndBuildPayload(HttpServletRequest request) {
+		Map<String, String> m = flattenParams(request);
+		Optional<String> err = tryCompleteVnpay(m);
+		String txn = m.get("vnp_TxnRef");
+		Long orderId = Optional.ofNullable(txn)
+				.flatMap(orderPaymentRepository::findByTransactionRef)
+				.map(p -> p.getOrder().getId())
+				.orElse(null);
+		Long depositId = orderId != null ? null
+				: Optional.ofNullable(txn).flatMap(depositRepository::findByGatewayTxnRef).map(Deposit::getId)
+						.orElse(null);
+		Long installmentApplicationId = depositId == null ? null
+				: installmentApplicationRepository.findFirstByDepositId(depositId)
+						.map(scu.dn.used_cars_backend.entity.InstallmentApplication::getId)
+						.orElse(null);
+		boolean ok = err.isEmpty();
+		String code = ok ? "00" : err.orElse("ERROR");
+		return new VnpayClientReturnPayload(ok, code, "vnpay", orderId, depositId, installmentApplicationId);
+	}
+
+	public URI buildVnpayFrontendResultUri(VnpayClientReturnPayload p) {
+		String base = paymentGatewayConfigService.frontendBaseUrl().replaceAll("/$", "");
+		String q = "success=" + p.success() + "&code=" + URLEncoder.encode(p.code(), StandardCharsets.UTF_8)
+				+ "&kind=vnpay"
+				+ (p.orderId() != null ? "&orderId=" + p.orderId() : "")
+				+ (p.depositId() != null ? "&depositId=" + p.depositId() : "")
+				+ (p.installmentApplicationId() != null
+						? "&applicationId=" + p.installmentApplicationId()
+						: "");
+		return URI.create(base + "/payment/result?" + q);
+	}
+
+	@Transactional
+	public ZaloPayStatusResponse customerQueryZaloPayStatus(long userId, Long orderId, Long depositId) {
+		if ((orderId == null) == (depositId == null)) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Truyền đúng một trong orderId hoặc depositId.");
+		}
+		var cfg = paymentGatewayConfigService.loadZaloPayForCreate();
+		if (orderId != null) {
+			SalesOrder o = salesOrderRepository.findById(orderId)
+					.orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "Khong tim thay don."));
+			if (o.getCustomerId() == null || o.getCustomerId() != userId) {
+				throw new BusinessException(ErrorCode.PAYMENT_FORBIDDEN, "Khong co quyen xem giao dich nay.");
+			}
+			List<OrderPayment> list = orderPaymentRepository.findByOrderIdWithOrderAndBranch(orderId);
+			OrderPayment p = list.stream()
+					.filter(x -> "zalopay".equalsIgnoreCase(x.getPaymentMethod()))
+					.max(Comparator.comparing(OrderPayment::getId))
+					.orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_FAILED,
+							"Khong tim thay giao dich ZaloPay cho don."));
+			JsonNode gw = zaloPayService.queryOrderStatus(cfg, p.getTransactionRef());
+			boolean synced = maybeCompleteOrderPaymentFromZaloQuery(p, gw);
+			OrderPayment fresh = orderPaymentRepository.findById(p.getId()).orElse(p);
+			return new ZaloPayStatusResponse(gw, fresh.getStatus(), synced, fresh.getId(), null);
+		}
+		Deposit d = depositRepository.findById(depositId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.DEPOSIT_NOT_FOUND, "Khong tim thay coc."));
+		if (d.getCustomerId() != userId) {
+			throw new BusinessException(ErrorCode.DEPOSIT_ACCESS_DENIED, "Khong co quyen xem coc nay.");
+		}
+		if (!isZaloDeposit(d)) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Coc khong phai ZaloPay.");
+		}
+		if (d.getGatewayTxnRef() == null || d.getGatewayTxnRef().isBlank()) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Thieu ma giao dich ZaloPay (gateway_txn_ref).");
+		}
+		JsonNode gw = zaloPayService.queryOrderStatus(cfg, d.getGatewayTxnRef());
+		boolean synced = maybeCompleteDepositFromZaloQuery(d, gw);
+		Deposit fresh = depositRepository.findById(d.getId()).orElse(d);
+		return new ZaloPayStatusResponse(gw, fresh.getStatus(), synced, null, fresh.getId());
+	}
+
+	@Transactional
+	public Map<String, String> handleVnpayIpn(HttpServletRequest request) {
+		if (!webhookIpAllowlistService.isAllowed(request, WebhookIpAllowlistService.WebhookKind.VNPAY)) {
+			return Map.of("RspCode", "97", "Message", "Denied");
+		}
+		Map<String, String> m = flattenParams(request);
+		Optional<String> err = tryCompleteVnpay(m);
+		if (err.isPresent()) {
+			String c = err.get();
+			if ("INVALID_SIGNATURE".equals(c)) {
+				return Map.of("RspCode", "97", "Message", "Invalid Checksum");
+			}
+			if ("NOT_FOUND".equals(c)) {
+				return Map.of("RspCode", "01", "Message", "Order not found");
+			}
+			if ("AMOUNT_MISMATCH".equals(c)) {
+				return Map.of("RspCode", "04", "Message", "Invalid amount");
+			}
+			if ("NOT_SUCCESS".equals(c) || c.startsWith("RESP_")) {
+				return Map.of("RspCode", "00", "Message", "Acknowledged");
+			}
+			return Map.of("RspCode", "99", "Message", "Unknown error");
+		}
+		return Map.of("RspCode", "00", "Message", "Confirm Success");
+	}
+
+	@Transactional
+	public Map<String, Object> handleZaloCallback(HttpServletRequest httpRequest, String jsonBody) {
+		if (!webhookIpAllowlistService.isAllowed(httpRequest, WebhookIpAllowlistService.WebhookKind.ZALOPAY)) {
+			return Map.of("return_code", -5, "return_message", "ip not allowed");
+		}
+		try {
+			JsonNode root = objectMapper.readTree(jsonBody);
+			String data = root.path("data").asText("");
+			String mac = root.path("mac").asText("");
+			var cfg = paymentGatewayConfigService.loadZaloPayForCallback();
+			if (!zaloPayService.verifyCallbackMac(data, mac, cfg.key2())) {
+				return Map.of("return_code", -1, "return_message", "mac not equal");
+			}
+			JsonNode payload = zaloPayService.parseCallbackDataJson(data);
+			String appTransId = payload.path("app_trans_id").asText("");
+			if (appTransId.isBlank()) {
+				return Map.of("return_code", -2, "return_message", "missing app_trans_id");
+			}
+			long amount = payload.path("amount").asLong(-1);
+			OrderPayment p = orderPaymentRepository.findByTransactionRef(appTransId).orElse(null);
+			if (p != null) {
+				if ("Completed".equals(p.getStatus())) {
+					return Map.of("return_code", 1, "return_message", "success");
+				}
+				if (amount < 0 || BigDecimal.valueOf(amount).compareTo(p.getAmount()) != 0) {
+					return Map.of("return_code", -4, "return_message", "amount mismatch");
+				}
+				boolean paidOrder = payload.hasNonNull("zp_trans_id") || payload.path("result").asInt(0) == 1;
+				if (!paidOrder) {
+					if ("Pending".equals(p.getStatus())) {
+						p.setStatus("Failed");
+						orderPaymentRepository.save(p);
+					}
+					return Map.of("return_code", 1, "return_message", "success");
+				}
+				completePaymentAndOrder(p, "zalopay", null);
+				return Map.of("return_code", 1, "return_message", "success");
+			}
+			Deposit d = depositRepository.findByGatewayTxnRef(appTransId).orElse(null);
+			if (d == null) {
+				return Map.of("return_code", -3, "return_message", "order not found");
+			}
+			String depStatus = d.getStatus();
+			if ("Confirmed".equals(depStatus) || "Cancelled".equals(depStatus)) {
+				return Map.of("return_code", 1, "return_message", "success");
+			}
+			if (!"Pending".equals(depStatus) && !"AwaitingPayment".equals(depStatus)) {
+				return Map.of("return_code", 1, "return_message", "success");
+			}
+			if (amount < 0 || BigDecimal.valueOf(amount).compareTo(d.getAmount()) != 0) {
+				return Map.of("return_code", -4, "return_message", "amount mismatch");
+			}
+			JsonNode rcNode = payload.get("return_code");
+			Integer rcParsed = parseZaloReturnCode(rcNode);
+			if (rcParsed != null) {
+				int rc = rcParsed.intValue();
+				if (rc == 3) {
+					log.info("ZaloPay callback dang xu ly app_trans_id={} depositId={}", appTransId, d.getId());
+					return Map.of("return_code", 1, "return_message", "success");
+				}
+				if (rc == 2) {
+					depositService.cancelPendingDepositAfterOnlinePaymentDeclined(d.getId());
+					return Map.of("return_code", 1, "return_message", "success");
+				}
+				if (rc == 1) {
+					boolean paidDep = payload.hasNonNull("zp_trans_id") || payload.path("result").asInt(0) == 1;
+					if (!paidDep) {
+						return Map.of("return_code", 1, "return_message", "success");
+					}
+					if (payload.hasNonNull("zp_trans_id")) {
+						JsonNode z = payload.get("zp_trans_id");
+						d.setGatewayOrderUrl(z.isTextual() ? z.asText() : String.valueOf(z.asLong()));
+					}
+					completeDepositAfterOnlinePayment(d, null);
+					return Map.of("return_code", 1, "return_message", "success");
+				}
+				log.warn("ZaloPay callback return_code={} app_trans_id={} depositId={}", rc, appTransId, d.getId());
+				boolean paidUnknownRc = payload.hasNonNull("zp_trans_id") || payload.path("result").asInt(0) == 1;
+				if (!paidUnknownRc) {
+					depositService.cancelPendingDepositAfterOnlinePaymentDeclined(d.getId());
+				}
+				return Map.of("return_code", 1, "return_message", "success");
+			}
+			boolean paidDepLegacy = payload.hasNonNull("zp_trans_id") || payload.path("result").asInt(0) == 1;
+			if (!paidDepLegacy) {
+				depositService.cancelPendingDepositAfterOnlinePaymentDeclined(d.getId());
+				return Map.of("return_code", 1, "return_message", "success");
+			}
+			if (payload.hasNonNull("zp_trans_id")) {
+				JsonNode z = payload.get("zp_trans_id");
+				d.setGatewayOrderUrl(z.isTextual() ? z.asText() : String.valueOf(z.asLong()));
+			}
+			completeDepositAfterOnlinePayment(d, null);
+			return Map.of("return_code", 1, "return_message", "success");
+		} catch (Exception e) {
+			return Map.of("return_code", -9, "return_message", "parse error");
+		}
+	}
+
+	private static boolean isZaloDeposit(Deposit d) {
+		String gw = d.getPaymentGateway();
+		if (gw != null && gw.toLowerCase().contains("zalo")) {
+			return true;
+		}
+		return "zalopay".equalsIgnoreCase(d.getPaymentMethod());
+	}
+
+	@Transactional
+	public ZaloPayReturnPayload processZaloPayReturn(Long userId, Long depositId, Long orderId) {
+		log.info("[ZaloPayReturn] START processZaloPayReturn with userId={}, depositId={}, orderId={}", userId, depositId, orderId);
+		var cfg = paymentGatewayConfigService.loadZaloPayForCreate();
+
+		if (depositId != null) {
+			Deposit d = depositRepository.findById(depositId).orElse(null);
+			if (d != null) {
+				System.out.println("DEBUG processZaloPayReturn depositId=" + depositId 
+						+ " status=" + d.getStatus() 
+						+ " gatewayTxnRef=" + d.getGatewayTxnRef());
+			}
+			if (d == null) {
+				log.info("[ZaloPayReturn] Deposit {} not found", depositId);
+				return new ZaloPayReturnPayload(false, "NOT_FOUND", null, depositId);
+			}
+			log.info("[ZaloPayReturn] Deposit {} found. Current status: {}, gatewayTxnRef: {}", depositId, d.getStatus(), d.getGatewayTxnRef());
+			if (userId != null && d.getCustomerId() != userId) {
+				log.warn("[ZaloPayReturn] Deposit {} belongs to user {} but request is from user {}", depositId, d.getCustomerId(), userId);
+				return new ZaloPayReturnPayload(false, "FORBIDDEN", null, depositId);
+			}
+			if ("Confirmed".equals(d.getStatus()) || "Pending".equals(d.getStatus())) {
+				log.info("[ZaloPayReturn] Deposit {} is already completed (status={})", depositId, d.getStatus());
+				return new ZaloPayReturnPayload(true, "ALREADY_COMPLETED", null, depositId);
+			}
+			if ("Cancelled".equals(d.getStatus())) {
+				log.info("[ZaloPayReturn] Deposit {} is already cancelled", depositId);
+				return new ZaloPayReturnPayload(false, "ALREADY_CANCELLED", null, depositId);
+			}
+			if (d.getGatewayTxnRef() == null || d.getGatewayTxnRef().isBlank()) {
+				log.warn("[ZaloPayReturn] Deposit {} has no gatewayTxnRef", depositId);
+				return new ZaloPayReturnPayload(false, "NO_TXN_REF", null, depositId);
+			}
+
+			log.info("[ZaloPayReturn] Querying ZaloPay order status for txnRef={}", d.getGatewayTxnRef());
+			JsonNode gw = zaloPayService.queryOrderStatus(cfg, d.getGatewayTxnRef());
+			log.info("[ZaloPayReturn] ZaloPay query result: {}", gw);
+			
+			maybeCompleteDepositFromZaloQuery(d, gw);
+
+			Deposit fresh = depositRepository.findById(depositId).orElse(d);
+			boolean success = "Confirmed".equals(fresh.getStatus())
+					|| "Pending".equals(fresh.getStatus());
+			log.info("[ZaloPayReturn] Finished syncing deposit {}. Final status: {}, success: {}", depositId, fresh.getStatus(), success);
+			return new ZaloPayReturnPayload(success, success ? "OK" : "CANCELLED", gw, depositId);
+		}
+
+		if (orderId != null) {
+			log.info("[ZaloPayReturn] Order {} not supported yet", orderId);
+			return new ZaloPayReturnPayload(false, "ORDER_NOT_SUPPORTED", null, null);
+		}
+
+		log.warn("[ZaloPayReturn] Missing depositId or orderId");
+		return new ZaloPayReturnPayload(false, "MISSING_PARAM", null, null);
+	}
+
+	@Transactional
+	public boolean maybeSyncDepositFromZaloQuery(long depositId, JsonNode gw) {
+		Deposit d = depositRepository.findById(depositId).orElse(null);
+		if (d == null) {
+			return false;
+		}
+		return maybeCompleteDepositFromZaloQuery(d, gw);
+	}
+
+	private boolean maybeCompleteOrderPaymentFromZaloQuery(OrderPayment p, JsonNode gw) {
+		if (!"Pending".equals(p.getStatus())) {
+			return false;
+		}
+		int qrc = zaloReturnCodeFromNode(gw.get("return_code"));
+		if (qrc == Integer.MIN_VALUE) {
+			qrc = zaloReturnCodeFromNode(gw.get("returncode"));
+		}
+		if (qrc == 2) {
+			cancelPendingOrderPayment(p.getId());
+			return true;
+		}
+		if (qrc != Integer.MIN_VALUE && qrc != 1) {
+			return false;
+		}
+		if (gw.path("return_code").asInt() != 1) {
+			return false;
+		}
+		if (gw.path("zp_trans_id").asLong(0) <= 0) {
+			return false;
+		}
+		long amt = gw.path("amount").asLong(-1);
+		if (amt < 0 || BigDecimal.valueOf(amt).compareTo(p.getAmount()) != 0) {
+			return false;
+		}
+		completePaymentAndOrder(p, "zalopay", null);
+		return true;
+	}
+
+	private boolean maybeCompleteDepositFromZaloQuery(Deposit d, JsonNode gw) {
+		log.info("[ZaloPaySync] Checking deposit {} (status: {})", d.getId(), d.getStatus());
+		// Xu ly ca Pending va AwaitingPayment
+		if (!"Pending".equals(d.getStatus()) && !"AwaitingPayment".equals(d.getStatus())) {
+			log.info("[ZaloPaySync] Deposit {} has incompatible status: {}, skipping", d.getId(), d.getStatus());
+			return false;
+		}
+		int qrc = zaloReturnCodeFromNode(gw.get("return_code"));
+		if (qrc == Integer.MIN_VALUE) {
+			qrc = zaloReturnCodeFromNode(gw.get("returncode"));
+		}
+		log.info("[ZaloPaySync] Parsed ZaloPay return code: {}", qrc);
+		// return_code=2: ZaloPay xac nhan that bai/huy
+		// return_code=3: Chua thuc hien (thoat truoc QR)
+		// return_code am (vd: -6012): dang doi soat / giao dich loi
+		// Ca hai deu cancel vi deposit khong the tiep tuc
+		if (qrc == 2 || qrc == 3 || (qrc < 0 && qrc != Integer.MIN_VALUE)) {
+			log.info("[ZaloPaySync] ZaloPay declined/cancelled (qrc={}). Cancelling deposit {}", qrc, d.getId());
+			System.out.println("Cancel pending deposit after online payment declined: " + qrc);
+			depositService.cancelPendingDepositAfterOnlinePaymentDeclined(d.getId());
+			return true;
+		}
+		if (qrc != 1) {
+			log.info("[ZaloPaySync] return code {} is not 1 (success) nor 2/negative (fail). Skipping.", qrc);
+			return false;
+		}
+		if (gw.path("zp_trans_id").asLong(0) <= 0) {
+			log.warn("[ZaloPaySync] Missing or invalid zp_trans_id for success transaction");
+			return false;
+		}
+		long amt = gw.path("amount").asLong(-1);
+		if (amt < 0 || BigDecimal.valueOf(amt).compareTo(d.getAmount()) != 0) {
+			log.warn("[ZaloPaySync] Amount mismatch: ZP returned {}, required {}", amt, d.getAmount());
+			return false;
+		}
+		JsonNode zpNode = gw.get("zp_trans_id");
+		String zps = zpNode != null && zpNode.isIntegralNumber() ? String.valueOf(zpNode.asLong())
+				: gw.path("zp_trans_id").asText("");
+		if (!zps.isBlank()) {
+			d.setGatewayOrderUrl(zps);
+		}
+		log.info("[ZaloPaySync] Payment successful, completing deposit {}", d.getId());
+		completeDepositAfterOnlinePayment(d, null);
+		return true;
+	}
+
+	private void completePaymentAndOrder(OrderPayment p, String method, String vnpGatewayTransactionNo) {
+		p.setStatus("Completed");
+		p.setPaidAt(Instant.now());
+		if (vnpGatewayTransactionNo != null && !vnpGatewayTransactionNo.isBlank()) {
+			p.setVnpGatewayTransactionNo(vnpGatewayTransactionNo.trim());
+		}
+		SalesOrder o = p.getOrder();
+		o.setStatus("Processing");
+		o.setPaymentMethod(method);
+		orderPaymentRepository.save(p);
+		salesOrderRepository.save(o);
+
+		// Model event-based: moi lan thu tien online tao 1 row Transactions rieng (ref = OrderPayment).
+		FinancialTransaction tx = new FinancialTransaction();
+		tx.setUserId(o.getCustomerId());
+		tx.setType("Purchase");
+		tx.setAmount(p.getAmount());
+		tx.setStatus("Completed");
+		tx.setDescription("Thanh toan don hang #" + o.getOrderNumber() + " qua " + method);
+		tx.setReferenceId(p.getId());
+		tx.setReferenceType("OrderPayment");
+		tx.setPaymentGateway(normalizeGateway(method));
+		financialTransactionRepository.save(tx);
+
+		// Gui thong bao in-app cho khach hang
+		String gatewayLabel = "vnpay".equals(method) ? "VNPay" : "zalopay".equals(method) ? "ZaloPay" : method;
+		try {
+			if (o.getCustomerId() != null) {
+				inAppNotificationService.createNotification(
+						o.getCustomerId(), "order_payment_success",
+						"Thanh toán đơn hàng thành công",
+						"Đơn hàng #" + o.getOrderNumber() + " đã được thanh toán thành công qua " + gatewayLabel + ".",
+						"/dashboard/orders");
+			}
+		} catch (Exception e) {
+			log.warn("Khong gui duoc thong bao cho khach (orderId={}): {}", o.getId(), e.getMessage());
+		}
+
+		// Gui thong bao in-app cho staff tao don
+		try {
+			if (o.getStaffId() != null) {
+				inAppNotificationService.createNotification(
+						o.getStaffId(), "order_payment_received",
+						"Khách đã thanh toán",
+						"Khách hàng đã thanh toán đơn hàng #" + o.getOrderNumber() + " thành công.",
+						"/staff/orders");
+			}
+		} catch (Exception e) {
+			log.warn("Khong gui duoc thong bao cho staff (orderId={}): {}", o.getId(), e.getMessage());
+		}
+	}
+
+	// Thực hiện khi thanh toán online thành công:
+	// B1: Load xe, kiểm tra còn available
+	// B2: Chuyển deposit AwaitingPayment → Pending
+	// B3: Tạo FinancialTransaction
+	// B4: Set xe RESERVED
+	private void completeDepositAfterOnlinePayment(Deposit d, String vnpGatewayTransactionNo) {
+		// B1: Kiem tra xe van con Available
+		Vehicle v = vehicleRepository.findById(d.getVehicleId())
+				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Xe không tìm thấy."));
+
+		// Neu xe da bi RESERVED/SOLD boi nguoi khac trong luc user dang thanh toan
+		if (!VehicleStatus.AVAILABLE.getDbValue().equals(v.getStatus())
+				&& !VehicleStatus.RESERVED.getDbValue().equals(v.getStatus())) {
+			// Xe da ban hoac khong kha dung -> cancel deposit, can hoan tien thu cong
+			d.setStatus("Cancelled");
+			String n = d.getNotes() != null ? d.getNotes() + " | " : "";
+			d.setNotes(n + "Huy: Xe khong con kha dung khi payment callback (can hoan tien)");
+			depositRepository.save(d);
+			log.warn("Deposit {} payment confirmed but vehicle {} no longer available. Manual refund needed.",
+					d.getId(), d.getVehicleId());
+			return;
+		}
+
+		// B2: Chuyen deposit tu AwaitingPayment → Pending
+		d.setStatus("Pending");
+		if (vnpGatewayTransactionNo != null && !vnpGatewayTransactionNo.isBlank()
+				&& (d.getGatewayOrderUrl() == null || d.getGatewayOrderUrl().isBlank())) {
+			d.setGatewayOrderUrl(vnpGatewayTransactionNo.trim());
+		}
+		depositRepository.save(d);
+
+		// B3: Tao FinancialTransaction (luc nay moi tao vi payment confirmed)
+		boolean txExists = financialTransactionRepository
+				.findByReferenceTypeAndReferenceId("Deposit", d.getId()).isPresent();
+		if (!txExists) {
+			FinancialTransaction tx = new FinancialTransaction();
+			tx.setUserId(d.getCustomerId());
+			tx.setType("Deposit");
+			tx.setAmount(d.getAmount());
+			tx.setStatus("Completed");
+			tx.setDescription("Dat coc xe thanh toan online #" + d.getId());
+			tx.setReferenceId(d.getId());
+			tx.setReferenceType("Deposit");
+			tx.setPaymentGateway(d.getPaymentGateway());
+			financialTransactionRepository.save(tx);
+		} else {
+			financialTransactionRepository.findByReferenceTypeAndReferenceId("Deposit", d.getId())
+					.ifPresent(tx -> {
+						tx.setStatus("Completed");
+						financialTransactionRepository.save(tx);
+					});
+		}
+
+		// B4: Set xe RESERVED (chi xay ra khi payment thanh cong)
+		v.setStatus(VehicleStatus.RESERVED.getDbValue());
+		vehicleRepository.save(v);
+		vehicleService.evictPublicVehicleCaches(v.getId());
+
+		// B5: Gui email thong bao dat coc thanh cong (async, khong anh huong luong chinh)
+		userRepository.findById(d.getCustomerId()).ifPresent(customer ->
+				emailNotificationService.sendDepositSuccessEmailAsync(d, v, customer));
+	}
+
+	private SalesOrder loadOrderAndAssertOwner(long orderId, long userId) {
+		SalesOrder o = salesOrderRepository.findById(orderId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "Khong tim thay don."));
+		if (o.getCustomerId() == null || o.getCustomerId() != userId) {
+			throw new BusinessException(ErrorCode.PAYMENT_FORBIDDEN, "Khong co quyen thanh toan don nay.");
+		}
+		if ("Cancelled".equals(o.getStatus())) {
+			throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION, "Don da huy.");
+		}
+		return o;
+	}
+
+	// Kiem tra quyen: staff kiem tra chi nhanh, customer kiem tra chu don
+	private SalesOrder loadOrderAndAssertActor(long orderId, long userId, boolean isStaff) {
+		if (!isStaff) {
+			return loadOrderAndAssertOwner(orderId, userId);
+		}
+		SalesOrder o = salesOrderRepository.findByIdWithBranch(orderId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND, "Khong tim thay don."));
+		if ("Cancelled".equals(o.getStatus())) {
+			throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION, "Don da huy.");
+		}
+		int bid = staffService.getManagerBranchId(userId);
+		if (o.getBranch().getId() != bid) {
+			throw new BusinessException(ErrorCode.PAYMENT_FORBIDDEN, "Don khong thuoc chi nhanh cua ban.");
+		}
+		return o;
+	}
+
+	// Gui email link thanh toan cho khach khi staff tao link
+	private void sendPaymentLinkEmailToCustomer(SalesOrder order, String paymentUrl, String gateway) {
+		try {
+			userRepository.findById(order.getCustomerId()).ifPresent(customer ->
+					emailNotificationService.sendOrderPaymentLinkEmailAsync(order, customer, paymentUrl, gateway));
+		} catch (Exception e) {
+			log.warn("Khong gui duoc email link thanh toan cho khach (orderId={}): {}", order.getId(), e.getMessage());
+		}
+	}
+
+	private static void assertPayableAmount(SalesOrder order, BigDecimal amount) {
+		if (amount.compareTo(order.getDepositAmount()) == 0 || amount.compareTo(order.getRemainingAmount()) == 0) {
+			return;
+		}
+		throw new BusinessException(ErrorCode.PAYMENT_AMOUNT_MISMATCH, "So tien khong khop tien coc hoac con lai.");
+	}
+
+	private static Map<String, String> flattenParams(HttpServletRequest req) {
+		Map<String, String> m = new TreeMap<>();
+		req.getParameterMap().forEach((k, v) -> {
+			if (v != null && v.length > 0) {
+				m.put(k, v[0]);
+			}
+		});
+		return m;
+	}
+
+	private static Integer parseZaloReturnCode(JsonNode n) {
+		if (n == null || n.isNull()) {
+			return null;
+		}
+		if (n.isInt() || n.isLong()) {
+			return n.asInt();
+		}
+		if (n.isTextual()) {
+			try {
+				return Integer.parseInt(n.asText().trim());
+			} catch (NumberFormatException e) {
+				return null;
+			}
+		}
+		return null;
+	}
+
+	private static int zaloReturnCodeFromNode(JsonNode n) {
+		Integer p = parseZaloReturnCode(n);
+		return p != null ? p : Integer.MIN_VALUE;
+	}
+
+	// Hoan tien coc qua cong thanh toan (VNPay).
+	// Tra ve true neu hoan thanh cong, false neu khong hoan duoc (cash, thieu thong tin, ZaloPay chua ho tro).
+	// Nem exception neu gateway tra loi loi nghiem trong.
+	public boolean refundDeposit(Deposit d) {
+		String gateway = d.getPaymentGateway();
+
+		// B1: Tien mat hoac khong co cong thanh toan -> khong can goi API, hoan truc tiep tai quay
+		if (gateway == null || "cash".equalsIgnoreCase(gateway.trim())) {
+			return true;
+		}
+
+		String gw = gateway.trim().toLowerCase();
+
+		// B2: VNPay -> goi Merchant API refund
+		if ("vnpay".equals(gw)) {
+			return refundDepositVnpay(d);
+		}
+
+		// B3: ZaloPay -> goi ZaloPay Refund API
+		if ("zalopay".equals(gw)) {
+			return refundDepositZaloPay(d);
+		}
+
+		log.warn("Cong thanh toan '{}' khong ho tro refund tu dong. Deposit {}", gw, d.getId());
+		return false;
+	}
+
+	// Goi VNPay Merchant API de hoan tien coc
+	private boolean refundDepositVnpay(Deposit d) {
+		// gatewayTxnRef = vnp_TxnRef goc khi tao giao dich
+		String txnRef = d.getGatewayTxnRef();
+		if (txnRef == null || txnRef.isBlank()) {
+			log.warn("Deposit {} thieu gatewayTxnRef, khong the hoan tien VNPay.", d.getId());
+			return false;
+		}
+
+		// gatewayTransRef = vnpCreateDate (timestamp goc khi tao giao dich, format yyyyMMddHHmmss)
+		String payCreateDate = d.getGatewayTransRef();
+		if (payCreateDate == null || payCreateDate.isBlank()) {
+			log.warn("Deposit {} thieu gatewayTransRef (vnpCreateDate), khong the hoan tien VNPay.", d.getId());
+			return false;
+		}
+
+		// gatewayOrderUrl = vnp_TransactionNo tu gateway (co the null)
+		String vnpGatewayTxnNo = d.getGatewayOrderUrl();
+
+		try {
+			long amountMinor = d.getAmount().multiply(BigDecimal.valueOf(100)).longValueExact();
+			var cfg = paymentGatewayConfigService.loadVnpayForMerchantApi();
+			String reqId = VnpayMerchantApiService.newRequestId();
+
+			var resp = vnpayMerchantApiService.refund(
+					cfg, reqId, txnRef.trim(), amountMinor, "02",
+					payCreateDate.trim(),
+					vnpGatewayTxnNo != null ? vnpGatewayTxnNo.trim() : null,
+					"system-auto-refund",
+					"Hoan tien coc deposit #" + d.getId(),
+					"127.0.0.1");
+
+			String rc = resp.path("vnp_ResponseCode").asText("");
+			if ("00".equals(rc)) {
+				log.info("VNPay refund thanh cong cho deposit {}.", d.getId());
+				return true;
+			}
+			// 94 = da gui yeu cau hoan tien truoc do -> coi nhu da hoan
+			if ("94".equals(rc)) {
+				log.info("VNPay refund deposit {} da duoc xu ly truoc do (code 94).", d.getId());
+				return true;
+			}
+			String msg = resp.path("vnp_Message").asText(rc);
+			log.warn("VNPay refund deposit {} that bai: code={}, message={}", d.getId(), rc, msg);
+			// Loi vinh vien (du lieu sai, giao dich khong ton tai...) -> danh dau khong retry
+			if (isVnpayPermanentError(rc)) {
+				String n = d.getNotes() != null ? d.getNotes() : "";
+				if (!n.contains("[refund-no-retry]")) {
+					d.setNotes((n.isBlank() ? "" : n + " | ") + "[refund-no-retry] VNPay code=" + rc + ": " + msg);
+				}
+			}
+			return false;
+		} catch (Exception e) {
+			log.error("Loi khi goi VNPay refund cho deposit {}: {}", d.getId(), e.getMessage());
+			return false;
+		}
+	}
+
+	// VNPay error code vinh vien — retry cung khong thanh cong
+	// 02 = TMNCode khong hop le, 03 = du lieu sai, 91 = giao dich khong ton tai
+	private boolean isVnpayPermanentError(String responseCode) {
+		return java.util.Set.of("02", "03", "91").contains(responseCode);
+	}
+
+	// Goi ZaloPay Refund API de hoan tien coc
+	private boolean refundDepositZaloPay(Deposit d) {
+		// gatewayOrderUrl = zp_trans_id (ma giao dich ZaloPay)
+		String zpTransId = d.getGatewayOrderUrl();
+		if (zpTransId == null || zpTransId.isBlank()) {
+			log.warn("Deposit {} thieu gatewayOrderUrl (zp_trans_id), khong the hoan tien ZaloPay.", d.getId());
+			return false;
+		}
+
+		try {
+			var cfg = paymentGatewayConfigService.loadZaloPayForCreate();
+			long amountVnd = d.getAmount().longValueExact();
+			String desc = "Hoan tien coc deposit #" + d.getId();
+
+			long refundId = zaloPayService.refund(cfg, zpTransId.trim(), amountVnd, desc);
+			log.info("ZaloPay refund da tiep nhan cho deposit {}. refund_id={}", d.getId(), refundId);
+			return true;
+		} catch (Exception e) {
+			log.error("Loi khi goi ZaloPay refund cho deposit {}: {}", d.getId(), e.getMessage());
+			return false;
+		}
+	}
+
+	// Chuan hoa gateway cho CK_Trans_PaymentGateway (vnpay|zalopay|cash).
+	// Bat ky gia tri nao khong phai vnpay/zalopay (sau lowercase) se map thanh 'cash'.
+	private String normalizeGateway(String method) {
+		if (method == null) {
+			return "cash";
+		}
+		String v = method.trim().toLowerCase();
+		if ("vnpay".equals(v) || "zalopay".equals(v)) {
+			return v;
+		}
+		return "cash";
+	}
+}

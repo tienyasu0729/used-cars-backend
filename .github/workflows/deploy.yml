@@ -39,6 +39,8 @@ jobs:
 
             git pull origin main
 
+            chmod +x mvnw
+
             ./mvnw clean package -DskipTests
 
             pkill -f "used-cars-backend" || true

@@ -43,7 +43,13 @@ jobs:
 
             ./mvnw clean package -Dmaven.test.skip=true
 
-            pkill -f "used-cars-backend" || true
+            pkill -f "used-cars-backend-0.0.1-SNAPSHOT.jar" || true
 
-            nohup java -jar target/*.jar > /var/log/used-cars-backend.log 2>&1 &
+            sleep 2
+
+            nohup java -jar target/used-cars-backend-0.0.1-SNAPSHOT.jar > /var/log/used-cars-backend.log 2>&1 &
+
+            disown
+
+            echo "Deploy done"
 

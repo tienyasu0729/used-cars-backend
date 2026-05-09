@@ -1,0 +1,49 @@
+
+name: Deploy Backend
+
+on:
+
+  push:
+
+    branches:
+
+      - main
+
+jobs:
+
+  deploy:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Deploy backend
+
+        uses: appleboy/ssh-action@master
+
+        with:
+
+          host: ${{ secrets.HOST }}
+
+          username: ${{ secrets.USERNAME }}
+
+          key: ${{ secrets.SSH_KEY }}
+
+          port: ${{ secrets.PORT }}
+
+          script: |
+
+            export PATH=$PATH:/root/.nvm/versions/node/v24.15.0/bin
+
+            cd /var/www/used-cars-backend
+
+            git reset --hard
+
+            git pull origin main
+
+            npm install
+
+            npm run build
+
+            pm2 reload used-cars-backend || pm2 start dist/main.js --name used-cars-backend
+

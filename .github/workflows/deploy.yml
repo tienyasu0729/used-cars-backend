@@ -31,8 +31,6 @@ jobs:
 
           port: ${{ secrets.PORT }}
 
-          request_pty: true
-
           script: |
 
             cd /var/www/used-cars-backend
@@ -45,11 +43,5 @@ jobs:
 
             ./mvnw clean package -Dmaven.test.skip=true
 
-            pkill -f "used-cars-backend-0.0.1-SNAPSHOT.jar" || true
-
-            sleep 2
-
-            setsid nohup java -jar target/used-cars-backend-0.0.1-SNAPSHOT.jar > /var/log/used-cars-backend.log 2>&1 < /dev/null &
-
-            echo "Deploy done"
+            systemctl restart used-cars-backend
 

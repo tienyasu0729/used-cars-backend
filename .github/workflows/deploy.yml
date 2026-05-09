@@ -33,17 +33,15 @@ jobs:
 
           script: |
 
-            export PATH=$PATH:/root/.nvm/versions/node/v24.15.0/bin
-
             cd /var/www/used-cars-backend
 
             git reset --hard
 
             git pull origin main
 
-            npm install
+            ./mvnw clean package -DskipTests
 
-            npm run build
+            pkill -f "used-cars-backend" || true
 
-            pm2 reload used-cars-backend || pm2 start dist/main.js --name used-cars-backend
+            nohup java -jar target/*.jar > /var/log/used-cars-backend.log 2>&1 &
 

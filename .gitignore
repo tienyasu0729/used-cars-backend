@@ -35,6 +35,7 @@ build/
 .agent/
 .codex/
 AGENTS.md
+GEMINI.md/
 docs/
 
 # Cloudinary / secret cục bộ — không commit

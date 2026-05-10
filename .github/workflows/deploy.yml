@@ -5,9 +5,7 @@ on:
 
   push:
 
-    branches:
-
-      - main
+    branches: [main]
 
 jobs:
 
@@ -17,9 +15,7 @@ jobs:
 
     steps:
 
-      - name: Deploy backend
-
-        uses: appleboy/ssh-action@master
+      - uses: appleboy/ssh-action@v1.0.3
 
         with:
 
@@ -31,17 +27,9 @@ jobs:
 
           port: ${{ secrets.PORT }}
 
+          command_timeout: 20m
+
           script: |
 
-            cd /var/www/used-cars-backend
-
-            git reset --hard
-
-            git pull origin main
-
-            chmod +x mvnw
-
-            ./mvnw clean package -Dmaven.test.skip=true
-
-            systemctl restart used-cars-backend
+            cd /opt/backend/app && git reset --hard && git pull origin main && chmod +x mvnw && ./mvnw clean package -Dmaven.test.skip=true && systemctl restart used-cars-backend
 

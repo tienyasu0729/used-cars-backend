@@ -1,0 +1,271 @@
+
+spring:
+
+  servlet:
+
+    multipart:
+
+      max-file-size: 10MB
+
+      max-request-size: 12MB
+
+
+
+  datasource:
+
+    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+
+    url: jdbc:sqlserver://localhost:1433;databaseName=usedCars;encrypt=false;trustServerCertificate=true;sendTimeAsDatetime=false
+
+    username: sa
+
+    password: "Sa@2026Strong!"
+
+
+
+  jpa:
+
+    hibernate:
+
+      ddl-auto: validate
+
+      naming:
+
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+
+    open-in-view: false
+
+    properties:
+
+      hibernate.type.preferred_instant_jdbc_type: TIMESTAMP
+
+      hibernate:
+
+        dialect: org.hibernate.dialect.SQLServerDialect
+
+        format_sql: false
+
+
+
+  data:
+
+    redis:
+
+      host: localhost
+
+      port: 6379
+
+      timeout: 2000ms
+
+
+
+  flyway:
+
+    enabled: false
+
+
+
+  mail:
+
+    host: smtp.gmail.com
+
+    port: 587
+
+    username: "otocudanang123@gmail.com"
+
+    password: "frwqolqmnuzfjlrb"
+
+    properties:
+
+      mail:
+
+        smtp:
+
+          auth: true
+
+          starttls:
+
+            enable: true
+
+            required: true
+
+          ssl:
+
+            trust: smtp.gmail.com
+
+            protocols: TLSv1.2
+
+
+
+server:
+
+  port: 8080
+
+
+
+logging:
+
+  level:
+
+    scu.dn.used_cars_backend.service.payment: INFO
+
+
+
+app:
+
+  timezone: Asia/Saigon
+
+
+
+  security:
+
+    cors:
+
+      allowed-origin-patterns:
+
+        - "https://otocudanang.store"
+
+        - "https://www.otocudanang.store"
+
+    rate-limit:
+
+      enabled: true
+
+      requests-per-minute: 60
+
+    webhook:
+
+      vnpay-allow-cidrs: []
+
+      zalopay-allow-cidrs: []
+
+
+
+  mail:
+
+    from: "otocudanang123@gmail.com"
+
+
+
+  jwt:
+
+    secret: "ProdSecretKey_MustBe256BitsLong_OtoCuDaNang_2026_SecureRandom!!"
+
+    expiration-ms: 86400000
+
+
+
+  google:
+
+    client-id: "295380430968-io62k6mffrmk3avcuf1l0r4c9o46fvpe.apps.googleusercontent.com"
+
+
+
+  cloudinary:
+
+    cloud-name: "degmf4c2i"
+
+    api-key: "551714331666619"
+
+    api-secret: "uypi0SiN8m12oY-TMOh6yDJPIGM"
+
+
+
+  cloudinary-docs:
+
+    cloud-name: "dr1icb3pe"
+
+    api-key: "767919882347391"
+
+    api-secret: "Kcyqq0mrG8mMoRgLp-3XFZubv7E"
+
+
+
+  credit-service:
+
+    url: "https://credit-service-n2s5.onrender.com/api/loan/apply"
+
+    status-endpoint: "https://credit-service-n2s5.onrender.com/api/loan/status"
+
+    api-key: "fb_3652d9c281d287acced1963b6ee75b49"
+
+    secret: "cac3e64970bf86f8fe94f36ebe438034c463e44448e32bd03314bbcef91ac27d"
+
+    api-secret: "cac3e64970bf86f8fe94f36ebe438034c463e44448e32bd03314bbcef91ac27d"
+
+    timeout-ms: 10000
+
+    connect-timeout-ms: 3000
+
+    retry:
+
+      fixed-delay-ms: 15000
+
+      base-delay-ms: 5000
+
+      max-delay-ms: 900000
+
+      batch-size: 20
+
+
+
+  order:
+
+    pending-timeout-hours: 24
+
+
+
+  installment:
+
+    pre-deposit-percent: 10
+
+
+
+  payment:
+
+    frontend-base-url: "https://otocudanang.store"
+
+    vnpay:
+
+      enabled: true
+
+      tmn-code: "5KGHVO2Q"
+
+      hash-secret: "W1CUPHXNCA09SNZXIZ7EBG9BXP5N7DE7"
+
+      pay-url: "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html"
+
+      return-url: "https://api.otocudanang.store/api/v1/payment/vnpay/return"
+
+      ipn-url: "https://api.otocudanang.store/api/v1/payment/vnpay/ipn"
+
+    zalopay:
+
+      enabled: true
+
+      app-id: "2553"
+
+      key1: "PcY4iZIKFCIdgZvA6ueMcMHHUbRLYjPL"
+
+      key2: "kLtgPl8HHhfvMuDHPwKfgfsY4Ydm9eIz"
+
+      endpoint: "https://sb-openapi.zalopay.vn/v2/create"
+
+      callback-url: "https://api.otocudanang.store/api/v1/payment/zalopay/callback"
+
+
+
+  pricing:
+
+    enabled: true
+
+    base-url: "http://localhost:8000"
+
+    estimate-path: "/internal/vehicle-pricing/estimate"
+
+    internal-token: "pricing_internal_prod_token_2026"
+
+    connect-timeout-ms: 15000
+
+    read-timeout-ms: 600000
+

@@ -55,6 +55,7 @@ public class PaymentController {
 				.cash(cash)
 				.vnpay(vn)
 				.zalopay(zl)
+				.depositPercent(paymentGatewayConfigService.getDepositPercent())
 				.build()));
 	}
 

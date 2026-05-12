@@ -15,6 +15,7 @@ import scu.dn.used_cars_backend.entity.Vehicle;
 import scu.dn.used_cars_backend.repository.BranchRepository;
 import scu.dn.used_cars_backend.repository.CategoryRepository;
 import scu.dn.used_cars_backend.repository.DepositRepository;
+import scu.dn.used_cars_backend.repository.InstallmentApplicationRepository;
 import scu.dn.used_cars_backend.repository.StaffAssignmentRepository;
 import scu.dn.used_cars_backend.repository.SubcategoryRepository;
 import scu.dn.used_cars_backend.repository.VehicleImageRepository;
@@ -51,6 +52,8 @@ class VehicleServicePublicDetailTokenTest {
 	@Mock
 	private DepositRepository depositRepository;
 	@Mock
+	private InstallmentApplicationRepository installmentApplicationRepository;
+	@Mock
 	private EmailNotificationService emailNotificationService;
 
 	private VehicleService vehicleService;
@@ -67,6 +70,7 @@ class VehicleServicePublicDetailTokenTest {
 				new ConcurrentMapCacheManager("vehicleList", "vehicleDetail"),
 				depositService,
 				depositRepository,
+				installmentApplicationRepository,
 				emailNotificationService);
 		when(depositRepository.countByVehicleIdAndStatusIn(anyLong(), any())).thenReturn(0L);
 	}

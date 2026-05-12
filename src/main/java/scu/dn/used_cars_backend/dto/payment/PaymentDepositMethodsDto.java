@@ -14,4 +14,5 @@ public class PaymentDepositMethodsDto {
 	private boolean cash;
 	private boolean vnpay;
 	private boolean zalopay;
+	private int depositPercent;
 }

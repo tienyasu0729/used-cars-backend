@@ -40,6 +40,8 @@ public class PaymentGatewayConfigService {
 
 	public static final String KEY_APP_FRONTEND_BASE_URL = "app_frontend_base_url";
 
+	public static final String KEY_DEPOSIT_MIN_PERCENT = "payment_min_deposit_percent";
+
 	private final SystemConfigRepository systemConfigRepository;
 	private final PaymentGatewayProperties paymentGatewayProperties;
 
@@ -245,5 +247,19 @@ public class PaymentGatewayConfigService {
 	}
 
 	public record ZaloPayRuntimeConfig(String appId, String key1, String key2, String endpoint, String callbackUrl) {
+	}
+
+	@Transactional(readOnly = true)
+	public int getDepositPercent() {
+		String raw = getOptionalFromDb(KEY_DEPOSIT_MIN_PERCENT);
+		if (raw == null || raw.isBlank()) {
+			return 10;
+		}
+		try {
+			int v = Integer.parseInt(raw);
+			return (v > 0 && v <= 100) ? v : 10;
+		} catch (NumberFormatException e) {
+			return 10;
+		}
 	}
 }

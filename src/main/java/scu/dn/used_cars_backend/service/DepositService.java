@@ -24,6 +24,7 @@ import scu.dn.used_cars_backend.entity.VehicleImage;
 import scu.dn.used_cars_backend.entity.VehicleStatus;
 import scu.dn.used_cars_backend.repository.DepositRepository;
 import scu.dn.used_cars_backend.repository.FinancialTransactionRepository;
+import scu.dn.used_cars_backend.repository.SystemConfigRepository;
 import scu.dn.used_cars_backend.repository.UserRepository;
 import scu.dn.used_cars_backend.repository.VehicleRepository;
 import scu.dn.used_cars_backend.service.payment.PaymentGatewayConfigService;
@@ -72,6 +73,7 @@ public class DepositService {
 	private final InAppNotificationService inAppNotificationService;
 	private final EmailNotificationService emailNotificationService;
 	private final ShowroomCustomerService showroomCustomerService;
+	private final SystemConfigRepository systemConfigRepository;
 
 	@Transactional(rollbackFor = Exception.class)
 	public CreateDepositResponse create(long actorUserId, String jwtRole, CreateDepositRequest req, String clientIp) {
@@ -100,6 +102,9 @@ public class DepositService {
 		LocalDate depositDate = parseDateOrToday(req.getDepositDate());
 		LocalDate expiryDate = parseExpiry(req.getExpiryDate(), depositDate);
 		String pm = normalizeAndAssertDepositPayment(jwtRole, req.getPaymentMethod());
+
+		// B4: Validate so tien coc >= X% gia xe (doc tu config)
+		validateDepositAmountPercent(req.getAmount(), v);
 
 		// B5: Tao deposit record
 		Deposit d = new Deposit();
@@ -867,5 +872,31 @@ public class DepositService {
 		tx.setReferenceType(referenceType);
 		tx.setPaymentGateway(gw);
 		financialTransactionRepository.save(tx);
+	}
+
+	private void validateDepositAmountPercent(BigDecimal depositAmount, Vehicle vehicle) {
+		if (vehicle.getPrice() == null || vehicle.getPrice().compareTo(BigDecimal.ZERO) <= 0) {
+			return;
+		}
+		int percent = 10;
+		String raw = systemConfigRepository.findByConfigKey(PaymentGatewayConfigService.KEY_DEPOSIT_MIN_PERCENT)
+				.map(r -> r.getConfigValue() != null ? r.getConfigValue().trim() : "")
+				.orElse("");
+		if (!raw.isEmpty()) {
+			try {
+				percent = Integer.parseInt(raw);
+			} catch (NumberFormatException ignored) {
+			}
+		}
+		if (percent <= 0 || percent > 100) {
+			percent = 10;
+		}
+		BigDecimal minAmount = vehicle.getPrice()
+				.multiply(BigDecimal.valueOf(percent))
+				.divide(BigDecimal.valueOf(100), 0, java.math.RoundingMode.CEILING);
+		if (depositAmount.compareTo(minAmount) < 0) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+					"Số tiền cọc tối thiểu là " + percent + "% giá xe (" + minAmount.toPlainString() + " VNĐ).");
+		}
 	}
 }

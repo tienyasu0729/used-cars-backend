@@ -65,6 +65,9 @@ public class Booking {
 	@Column(nullable = false, length = 20)
 	private String status = "Pending";
 
+	@Column(name = "otp_verification_id")
+	private Long otpVerificationId;
+
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
 

@@ -34,9 +34,13 @@ build/
 .cursor/
 .agent/
 .codex/
+.kiro/
 AGENTS.md
 GEMINI.md/
 docs/
+
+### Test framework local data ###
+.jqwik-database
 
 # Cloudinary / secret cục bộ — không commit
 src/main/resources/application.yml

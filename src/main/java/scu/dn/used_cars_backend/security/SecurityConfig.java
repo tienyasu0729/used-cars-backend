@@ -13,9 +13,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfigurationSource;
+import scu.dn.used_cars_backend.sms.filter.DeviceKeyFilter;
+import scu.dn.used_cars_backend.sms.filter.SmsHttpsFilter;
 
-// Cấu hình bảo mật: JWT không session; cho phép GET catalog + xe công khai (không token).
-// Phase 1 — Cần JWT: PUT/GET /api/v1/users/me*, GET /api/v1/users/me/stats, POST /api/v1/auth/change-password, /logout.
 @Configuration
 @EnableWebSecurity
 @RequiredArgsConstructor
@@ -24,6 +24,8 @@ public class SecurityConfig {
 	private final JwtAuthenticationFilter jwtAuthenticationFilter;
 	private final RestAuthenticationEntryPoint restAuthenticationEntryPoint;
 	private final CorsConfigurationSource corsConfigurationSource;
+	private final DeviceKeyFilter deviceKeyFilter;
+	private final SmsHttpsFilter smsHttpsFilter;
 
 	@Bean
 	PasswordEncoder passwordEncoder() {
@@ -38,9 +40,10 @@ public class SecurityConfig {
 				.exceptionHandling(e -> e.authenticationEntryPoint(restAuthenticationEntryPoint))
 				.authorizeHttpRequests(auth -> auth
 						.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+						.requestMatchers("/api/sms/**").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/v1/consultations").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/v1/auth/login", "/api/v1/auth/register",
-								"/api/v1/auth/google",
+								"/api/v1/auth/register/request-otp", "/api/v1/auth/google",
 								"/api/v1/auth/forgot-password", "/api/v1/auth/reset-password").permitAll()
 						.requestMatchers(HttpMethod.GET, "/api/v1/catalog/**").permitAll()
 						.requestMatchers(HttpMethod.GET, "/api/v1/branches", "/api/v1/branches/*", "/api/v1/branches/*/team")
@@ -79,6 +82,8 @@ public class SecurityConfig {
 						.requestMatchers("/api/v1/manager/media/**").hasAnyRole("ADMIN", "BRANCHMANAGER")
 						.requestMatchers("/api/v1/staff/dashboard/**").hasAnyRole("ADMIN", "BRANCHMANAGER", "SALESSTAFF")
 						.anyRequest().authenticated())
+				.addFilterBefore(smsHttpsFilter, UsernamePasswordAuthenticationFilter.class)
+				.addFilterBefore(deviceKeyFilter, UsernamePasswordAuthenticationFilter.class)
 				.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 		return http.build();
 	}

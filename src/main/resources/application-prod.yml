@@ -109,6 +109,10 @@ logging:
 
     scu.dn.used_cars_backend.service.payment: INFO
 
+    scu.dn.used_cars_backend.sms.service.OtpService: WARN
+
+    scu.dn.used_cars_backend.sms.service.SmsService: WARN
+
 
 
 app:
@@ -268,4 +272,10 @@ app:
     connect-timeout-ms: 15000
 
     read-timeout-ms: 600000
+
+  sms:
+
+    enabled: true
+
+    require-https: true
 

@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import scu.dn.used_cars_backend.booking.dto.AvailableSlotResponse;
+import scu.dn.used_cars_backend.booking.dto.BookingOtpRequest;
 import scu.dn.used_cars_backend.booking.dto.BookingResponse;
 import scu.dn.used_cars_backend.booking.dto.CancelBookingRequest;
 import scu.dn.used_cars_backend.booking.dto.ConfirmBookingRequest;
@@ -31,6 +32,8 @@ import scu.dn.used_cars_backend.common.api.ApiResponse;
 import scu.dn.used_cars_backend.common.exception.BusinessException;
 import scu.dn.used_cars_backend.common.exception.ErrorCode;
 import scu.dn.used_cars_backend.dto.vehicle.PageMetaDto;
+import scu.dn.used_cars_backend.sms.dto.OtpResponse;
+import scu.dn.used_cars_backend.sms.service.OtpService;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -40,8 +43,21 @@ import java.util.List;
 @RequiredArgsConstructor
 public class BookingController {
 
+	private static final String REFERENCE_TYPE_BOOKING = "booking";
+
 	private final BookingService bookingService;
 	private final SlotAvailabilityService slotAvailabilityService;
+	private final OtpService otpService;
+
+	@PostMapping("/request-otp")
+	@PreAuthorize("hasRole('CUSTOMER')")
+	public ResponseEntity<ApiResponse<OtpResponse>> requestOtp(
+			@Valid @RequestBody BookingOtpRequest request,
+			Authentication authentication) {
+		requireUserId(authentication);
+		OtpResponse response = otpService.generateOtp(request.getPhone(), REFERENCE_TYPE_BOOKING, null);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
 
 	@GetMapping("/available-slots")
 	public ResponseEntity<ApiResponse<List<AvailableSlotResponse>>> availableSlots(
@@ -58,7 +74,7 @@ public class BookingController {
 	public ResponseEntity<ApiResponse<BookingResponse>> create(@Valid @RequestBody CreateBookingRequest request,
 			Authentication authentication) {
 		long userId = requireUserId(authentication);
-		BookingResponse created = bookingService.createBooking(request, userId);
+		BookingResponse created = bookingService.createBookingWithOtp(request, userId);
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(created));
 	}
 

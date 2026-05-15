@@ -37,6 +37,8 @@ import scu.dn.used_cars_backend.repository.VehicleRepository;
 import scu.dn.used_cars_backend.service.InAppNotificationService;
 import scu.dn.used_cars_backend.service.ShowroomCustomerService;
 import scu.dn.used_cars_backend.service.StaffService;
+import scu.dn.used_cars_backend.sms.dto.OtpVerifyResult;
+import scu.dn.used_cars_backend.sms.service.OtpService;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -68,6 +70,7 @@ public class BookingService {
 	private final StaffService staffService;
 	private final InAppNotificationService inAppNotificationService;
 	private final ShowroomCustomerService showroomCustomerService;
+	private final OtpService otpService;
 
 	@Transactional(rollbackFor = Exception.class)
 	public BookingResponse createBooking(CreateBookingRequest request, long customerId) {
@@ -83,7 +86,32 @@ public class BookingService {
 				"AwaitingContract",
 				customerId,
 				null,
-				false);
+				false,
+				null);
+	}
+
+	@Transactional(rollbackFor = Exception.class)
+	public BookingResponse createBookingWithOtp(CreateBookingRequest request, long customerId) {
+		OtpVerifyResult otpResult = otpService.verifyOtp(
+				request.getPhone(),
+				request.getOtpCode(),
+				"booking",
+				null);
+
+		LocalDate bookingDate = parseDate(request.getBookingDate());
+		LocalTime timeSlot = parseTime(request.getTimeSlot());
+		return createBookingInternal(
+				request.getVehicleId(),
+				request.getBranchId(),
+				bookingDate,
+				timeSlot,
+				trimToNull(request.getNote()),
+				customerId,
+				"AwaitingContract",
+				customerId,
+				null,
+				false,
+				otpResult.getOtpId());
 	}
 
 	@Transactional(rollbackFor = Exception.class)
@@ -103,7 +131,8 @@ public class BookingService {
 				"Confirmed",
 				actorUserId,
 				historyNote,
-				true);
+				true,
+				null);
 	}
 
 	@Transactional
@@ -345,7 +374,8 @@ public class BookingService {
 			String initialStatus,
 			Long historyChangedBy,
 			String historyNote,
-			boolean notifyAfterCreate) {
+			boolean notifyAfterCreate,
+			Long otpVerificationId) {
 		Branch branch = branchRepository.findByIdAndDeletedFalse(branchId)
 				.orElseThrow(() -> new BusinessException(ErrorCode.BRANCH_NOT_FOUND, "Không tìm thấy chi nhánh."));
 
@@ -392,6 +422,7 @@ public class BookingService {
 		booking.setNote(note);
 		booking.setStatus(initialStatus);
 		booking.setStaffId(resolveAutoAssignedSalesStaffId(branchId));
+		booking.setOtpVerificationId(otpVerificationId);
 
 		try {
 			booking = bookingRepository.saveAndFlush(booking);
@@ -486,6 +517,7 @@ public class BookingService {
 				.staffName(staffName)
 				.status(b.getStatus())
 				.note(b.getNote())
+				.otpVerificationId(b.getOtpVerificationId())
 				.createdAt(b.getCreatedAt())
 				.statusHistory(hist)
 				.build();

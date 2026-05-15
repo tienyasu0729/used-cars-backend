@@ -49,6 +49,8 @@ public class BookingResponse {
 
 	private String note;
 
+	private Long otpVerificationId;
+
 	@JsonFormat(shape = JsonFormat.Shape.STRING)
 	private Instant createdAt;
 

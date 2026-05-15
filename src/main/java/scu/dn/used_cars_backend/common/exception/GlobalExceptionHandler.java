@@ -36,6 +36,7 @@ public class GlobalExceptionHandler {
 				.errorCode(ec.getCode())
 				.message(ex.getMessage() != null && !ex.getMessage().equals(ec.name()) ? ex.getMessage() : defaultMessage(ec))
 				.path(request.getRequestURI())
+				.errors(ex.getErrors() != null && !ex.getErrors().isEmpty() ? ex.getErrors() : null)
 				.build();
 		return ResponseEntity.status(ec.getHttpStatus()).body(body);
 	}
@@ -256,6 +257,22 @@ public class GlobalExceptionHandler {
 			case CUSTOMER_IDENTITY_AMBIGUOUS -> "Tim thay nhieu khach hang khop email hoac so dien thoai.";
 			case BANK_CONNECTION_ERROR -> "Khong the ket noi toi dich vu tham dinh tin dung.";
 			case BANK_API_ERROR -> "Loi tu dich vu tham dinh tin dung.";
+			case OTP_GENERATION_FAILED -> "Loi tao ma OTP.";
+			case OTP_ALREADY_EXISTS -> "Ma OTP chua het han da ton tai.";
+			case OTP_INVALID_FORMAT -> "Ma OTP khong dung dinh dang.";
+			case OTP_INVALID_CODE -> "Ma OTP khong khop.";
+			case OTP_EXPIRED -> "Ma OTP da het han.";
+			case OTP_EXHAUSTED -> "Da vuot qua so lan thu cho phep.";
+			case OTP_ALREADY_VERIFIED -> "Ma OTP da duoc su dung.";
+			case OTP_RATE_LIMITED -> "Vuot gioi han gui OTP.";
+			case OTP_REFERENCE_INVALID -> "Ho so khong hop le.";
+			case SMS_VALIDATION_FAILED -> "Du lieu SMS khong hop le.";
+			case SMS_DUPLICATE -> "Tin nhan trung lap.";
+			case DEVICE_KEY_MISSING -> "Thieu X-Device-Key.";
+			case DEVICE_KEY_INVALID -> "Device Key khong hop le.";
+			case IP_BLOCKED -> "IP bi chan do nhieu lan sai.";
+			case OTP_RESEND_TOO_FAST -> "Gui lai OTP qua nhanh, vui long cho.";
+			case OTP_RESEND_LIMIT_EXCEEDED -> "Da vuot gioi han gui lai OTP.";
 		};
 	}
 }

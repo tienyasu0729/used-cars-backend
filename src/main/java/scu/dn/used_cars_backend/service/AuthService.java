@@ -37,6 +37,7 @@ import scu.dn.used_cars_backend.repository.StaffAssignmentRepository;
 import scu.dn.used_cars_backend.repository.UserRepository;
 import scu.dn.used_cars_backend.security.JwtService;
 import scu.dn.used_cars_backend.service.payment.PaymentGatewayConfigService;
+import scu.dn.used_cars_backend.sms.service.OtpService;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -46,7 +47,10 @@ import java.time.temporal.ChronoUnit;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Optional;
+
+import scu.dn.used_cars_backend.common.error.ApiErrorResponse;
 
 @Service
 @RequiredArgsConstructor
@@ -66,6 +70,7 @@ public class AuthService {
 	private final PasswordResetTokenRepository passwordResetTokenRepository;
 	private final ObjectProvider<JavaMailSender> javaMailSenderProvider;
 	private final PaymentGatewayConfigService paymentGatewayConfigService;
+	private final OtpService otpService;
 
 	@Value("${app.mail.from:}")
 	private String mailFromProp;
@@ -128,12 +133,16 @@ public class AuthService {
 	public RegisterResponse register(RegisterRequest request) {
 		String email = request.getEmail().trim().toLowerCase();
 		String phone = request.getPhone().trim();
+
+		otpService.verifyOtp(phone, request.getOtpCode(), "registration", null);
+
 		Optional<User> existingOpt = userRepository.findActiveByEmailWithRoles(email);
 		if (existingOpt.isPresent()) {
 			User existing = existingOpt.get();
 			if (isClaimableShowroomUser(existing)) {
 				if (userRepository.existsByPhoneIgnoreCaseAndDeletedFalseAndIdNot(phone, existing.getId())) {
-					throw new BusinessException(ErrorCode.STAFF_PHONE_EXISTS, "Số điện thoại đã được sử dụng.");
+					throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Thông tin đăng ký không hợp lệ.",
+							List.of(new ApiErrorResponse.FieldErrorDetail("phone", "Số điện thoại đã được sử dụng.")));
 				}
 				existing.setPasswordHash(passwordEncoder.encode(request.getPassword()));
 				existing.setAuthProvider("local");
@@ -148,7 +157,8 @@ public class AuthService {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Email đã được sử dụng.");
 		}
 		if (userRepository.existsByPhoneIgnoreCaseAndDeletedFalse(phone)) {
-			throw new BusinessException(ErrorCode.STAFF_PHONE_EXISTS, "Số điện thoại đã được sử dụng.");
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Thông tin đăng ký không hợp lệ.",
+					List.of(new ApiErrorResponse.FieldErrorDetail("phone", "Số điện thoại đã được sử dụng.")));
 		}
 		Role customerRole = roleRepository.findByName(CUSTOMER_ROLE)
 				.orElseThrow(() -> new IllegalStateException("Vai trò Customer chưa được seed trong database."));

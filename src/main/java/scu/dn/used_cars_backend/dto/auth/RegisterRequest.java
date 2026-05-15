@@ -26,4 +26,8 @@ public class RegisterRequest {
 	@NotBlank(message = "Mật khẩu không được để trống.")
 	@Size(min = 8, max = 100, message = "Mật khẩu từ 8 đến 100 ký tự.")
 	private String password;
+
+	@NotBlank(message = "Mã OTP không được để trống.")
+	@Pattern(regexp = "^\\d{6}$", message = "Mã OTP phải gồm đúng 6 chữ số.")
+	private String otpCode;
 }

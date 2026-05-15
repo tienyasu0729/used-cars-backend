@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+
+    <springProfile name="prod">
+        <logger name="scu.dn.used_cars_backend.sms" level="INFO" additivity="false">
+            <appender-ref ref="CONSOLE"/>
+        </logger>
+        <logger name="scu.dn.used_cars_backend.sms.service.OtpService" level="WARN" additivity="false">
+            <appender-ref ref="CONSOLE"/>
+        </logger>
+        <logger name="scu.dn.used_cars_backend.sms.service.SmsService" level="WARN" additivity="false">
+            <appender-ref ref="CONSOLE"/>
+        </logger>
+    </springProfile>
+
+    <springProfile name="!prod">
+        <logger name="scu.dn.used_cars_backend.sms" level="DEBUG" additivity="false">
+            <appender-ref ref="CONSOLE"/>
+        </logger>
+    </springProfile>
+</configuration>

@@ -13,6 +13,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import scu.dn.used_cars_backend.common.api.ApiResponse;
+import scu.dn.used_cars_backend.common.error.ApiErrorResponse;
+import scu.dn.used_cars_backend.common.exception.BusinessException;
+import scu.dn.used_cars_backend.common.exception.ErrorCode;
 import scu.dn.used_cars_backend.dto.auth.ChangePasswordRequest;
 import scu.dn.used_cars_backend.dto.auth.CompleteRequiredPasswordRequest;
 import scu.dn.used_cars_backend.dto.auth.ForgotPasswordRequest;
@@ -21,22 +24,27 @@ import scu.dn.used_cars_backend.dto.auth.LoginRequest;
 import scu.dn.used_cars_backend.dto.auth.LoginResponse;
 import scu.dn.used_cars_backend.dto.auth.RegisterRequest;
 import scu.dn.used_cars_backend.dto.auth.RegisterResponse;
+import scu.dn.used_cars_backend.dto.auth.RegistrationOtpRequest;
 import scu.dn.used_cars_backend.dto.auth.ResetPasswordRequest;
+import scu.dn.used_cars_backend.repository.UserRepository;
 import scu.dn.used_cars_backend.security.AuthenticationDetailsUtils;
 import scu.dn.used_cars_backend.service.AuthService;
+import scu.dn.used_cars_backend.sms.dto.OtpResponse;
+import scu.dn.used_cars_backend.sms.service.OtpService;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-// API xác thực: đăng nhập, đăng ký, đổi mật khẩu, logout (placeholder JWT stateless).
 @RestController
 @RequestMapping("/api/v1/auth")
 @RequiredArgsConstructor
 public class AuthController {
 
 	private final AuthService authService;
+	private final UserRepository userRepository;
+	private final OtpService otpService;
 
 	@PostMapping("/login")
 	public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
@@ -46,6 +54,27 @@ public class AuthController {
 	@PostMapping("/register")
 	public ResponseEntity<ApiResponse<RegisterResponse>> register(@Valid @RequestBody RegisterRequest request) {
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(authService.register(request)));
+	}
+
+	@PostMapping("/register/request-otp")
+	public ResponseEntity<ApiResponse<OtpResponse>> requestRegistrationOtp(
+			@Valid @RequestBody RegistrationOtpRequest request) {
+		String phone = request.getPhone();
+		String email = request.getEmail().trim().toLowerCase();
+
+		List<ApiErrorResponse.FieldErrorDetail> errors = new ArrayList<>();
+		if (userRepository.existsByEmailIgnoreCaseAndDeletedFalse(email)) {
+			errors.add(new ApiErrorResponse.FieldErrorDetail("email", "Email đã được sử dụng."));
+		}
+		if (userRepository.existsByPhoneIgnoreCaseAndDeletedFalse(phone)) {
+			errors.add(new ApiErrorResponse.FieldErrorDetail("phone", "Số điện thoại đã được sử dụng."));
+		}
+		if (!errors.isEmpty()) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Thông tin đăng ký không hợp lệ.", errors);
+		}
+
+		OtpResponse response = otpService.generateOtp(phone, "registration", null);
+		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
 	// Đăng nhập / đăng ký bằng Google — nhận Google ID Token từ frontend, verify và trả JWT

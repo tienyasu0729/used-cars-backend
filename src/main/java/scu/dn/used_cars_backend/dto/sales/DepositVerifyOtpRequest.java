@@ -1,26 +1,13 @@
-package scu.dn.used_cars_backend.booking.dto;
+package scu.dn.used_cars_backend.dto.sales;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
 @Data
-public class CreateBookingRequest {
-
-	@NotNull
-	private Long vehicleId;
-
-	@NotNull
-	private Integer branchId;
-
-	@NotBlank
-	private String bookingDate;
-
-	@NotBlank
-	private String timeSlot;
-
-	private String note;
+public class DepositVerifyOtpRequest {
 
 	@NotBlank
 	@Pattern(regexp = "^0\\d{9}$")
@@ -29,4 +16,8 @@ public class CreateBookingRequest {
 	@NotBlank
 	@Pattern(regexp = "^\\d{6}$")
 	private String otpCode;
+
+	@NotNull
+	@Valid
+	private CreateDepositRequest depositData;
 }

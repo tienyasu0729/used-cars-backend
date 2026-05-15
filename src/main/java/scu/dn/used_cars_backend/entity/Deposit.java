@@ -67,6 +67,9 @@ public class Deposit {
 	@Column(name = "gateway_order_url", length = 500)
 	private String gatewayOrderUrl;
 
+	@Column(name = "otp_verification_id")
+	private Long otpVerificationId;
+
 	@Column(name = "created_at", nullable = false, updatable = false)
 	private Instant createdAt;
 

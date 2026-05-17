@@ -36,8 +36,12 @@ build/
 .codex/
 .kiro/
 AGENTS.md
-GEMINI.md/
+GEMINI.md
 docs/
+
+### Local scripts & temp files ###
+scripts/
+extracted_functions.txt
 
 ### Test framework local data ###
 .jqwik-database

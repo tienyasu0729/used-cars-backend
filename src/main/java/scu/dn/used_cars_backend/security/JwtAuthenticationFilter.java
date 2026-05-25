@@ -47,6 +47,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 			new AntPathRequestMatcher("/api/v1/branches/*/team", "GET"),
 			new AntPathRequestMatcher("/api/v1/vehicles", "GET"),
 			new AntPathRequestMatcher("/api/v1/vehicles/*", "GET"),
+			new AntPathRequestMatcher("/api/v1/vehicles/suggestions", "GET"),
+			new AntPathRequestMatcher("/api/v1/vehicles/facets", "GET"),
+			new AntPathRequestMatcher("/api/v1/vehicles/compare", "GET"),
 			new AntPathRequestMatcher("/api/v1/vehicles/*/maintenance", "GET"),
 			new AntPathRequestMatcher("/api/v1/vehicles/*/view", "POST"),
 			new AntPathRequestMatcher("/api/v1/vehicles/recently-viewed", "GET"),
@@ -56,6 +59,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 			new AntPathRequestMatcher("/api/v1/articles/*", "GET"),
 			new AntPathRequestMatcher("/api/v1/vehicles/*/reviews", "GET"),
 			new AntPathRequestMatcher("/api/v1/vehicles/*/reviews/summary", "GET"),
+			new AntPathRequestMatcher("/api/loan-configs/public", "GET"),
 			// Sprint 9 — gửi phiếu tư vấn công khai; JWT tùy chọn để gắn customer_id
 			new AntPathRequestMatcher("/api/v1/consultations", "POST"));
 
@@ -127,16 +131,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 			Long userId = Long.parseLong(claims.getSubject());
 			String roleName = claims.get("role", String.class);
 			if (roleName == null || roleName.isBlank()) {
+				if (optionalPublicRead) return true;
 				errorWriter.write(response, ErrorCode.UNAUTHORIZED, "Token không hợp lệ.", request.getRequestURI());
 				return false;
 			}
 			Optional<User> userOpt = userRepository.findByIdAndDeletedFalse(userId);
 			if (userOpt.isEmpty()) {
+				if (optionalPublicRead) return true;
 				errorWriter.write(response, ErrorCode.UNAUTHORIZED, "Token không hợp lệ.", request.getRequestURI());
 				return false;
 			}
 			User user = userOpt.get();
 			if (!"active".equalsIgnoreCase(user.getStatus())) {
+				if (optionalPublicRead) return true;
 				errorWriter.write(response, ErrorCode.ACCOUNT_SUSPENDED, "Tài khoản bị khóa.", request.getRequestURI());
 				return false;
 			}
@@ -161,6 +168,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 			return true;
 		}
 		catch (JwtException | IllegalArgumentException ex) {
+			if (optionalPublicRead) return true;
 			errorWriter.write(response, ErrorCode.UNAUTHORIZED, "Token không hợp lệ hoặc đã hết hạn.",
 					request.getRequestURI());
 			return false;
@@ -168,10 +176,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 	}
 
 	private static boolean isPasswordChangeMandatoryExempt(HttpServletRequest request) {
+		String uri = request.getRequestURI();
+		if (uri != null && uri.startsWith("/api/v1/users/me")) {
+			return true;
+		}
 		if (!"POST".equalsIgnoreCase(request.getMethod())) {
 			return false;
 		}
-		String uri = request.getRequestURI();
 		return uri.contains("/auth/complete-required-password-change") || uri.contains("/auth/logout");
 	}
 }

@@ -27,4 +27,10 @@ public class UserProfileDto {
 	private String gender;
 	/** true → client phải chuyển sang màn đặt mật khẩu mới trước khi dùng app. */
 	private Boolean passwordChangeRequired;
+	/** true nếu user đã có mật khẩu (đăng nhập email+password được). */
+	private Boolean hasPassword;
+	/** true nếu tài khoản đã liên kết Google (có providerId). */
+	private Boolean googleLinked;
+	/** true → khách cần bổ sung họ tên + SĐT trước đặt lịch / trả góp. */
+	private Boolean profileCompletionRequired;
 }

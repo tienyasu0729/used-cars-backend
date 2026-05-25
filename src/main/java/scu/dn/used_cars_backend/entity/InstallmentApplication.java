@@ -157,6 +157,9 @@ public class InstallmentApplication extends BaseEntity {
 	@Column(name = "bank_pdf_url", length = 1000)
 	private String bankPdfUrl;
 
+	@Column(name = "otp_verification_id")
+	private Long otpVerificationId;
+
 	@OneToMany(mappedBy = "application", cascade = jakarta.persistence.CascadeType.ALL, orphanRemoval = true)
 	private List<InstallmentDocument> documents = new ArrayList<>();
 

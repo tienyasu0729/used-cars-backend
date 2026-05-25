@@ -49,4 +49,7 @@ public class SaveInstallmentApplicationRequest {
 	private LocalDate signedDate;
 
 	private String status;
+
+	/** Required when customer submits (status = PENDING_DOCUMENT). Returned from POST /installments/otp/verify. */
+	private Long otpVerificationId;
 }

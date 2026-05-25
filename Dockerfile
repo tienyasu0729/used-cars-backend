@@ -4,6 +4,7 @@ WORKDIR /build
 
 COPY pom.xml ./
 COPY src ./src
+COPY docker/config/application-docker.yml ./src/main/resources/application-docker.yml
 
 RUN mvn -Dmaven.test.skip=true package
 

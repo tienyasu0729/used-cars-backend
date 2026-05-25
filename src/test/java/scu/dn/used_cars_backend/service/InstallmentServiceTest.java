@@ -1,6 +1,5 @@
 package scu.dn.used_cars_backend.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,9 +26,11 @@ import scu.dn.used_cars_backend.repository.InstallmentStatusHistoryRepository;
 import scu.dn.used_cars_backend.repository.SalesOrderRepository;
 import scu.dn.used_cars_backend.repository.UserRepository;
 import scu.dn.used_cars_backend.repository.VehicleRepository;
+import scu.dn.used_cars_backend.sms.entity.OtpVerification;
+import scu.dn.used_cars_backend.sms.repository.OtpVerificationRepository;
 
 import java.math.BigDecimal;
-import java.util.Map;
+import java.time.Instant;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -39,7 +40,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -49,7 +49,6 @@ class InstallmentServiceTest {
 	@Mock private UserRepository userRepository;
 	@Mock private VehicleRepository vehicleRepository;
 	@Mock private CloudinaryDocumentService cloudinaryDocumentService;
-	@Mock private BankIntegrationService bankIntegrationService;
 	@Mock private InstallmentStatusHistoryRepository statusHistoryRepository;
 	@Mock private InAppNotificationRepository notificationRepository;
 	@Mock private AuditLogRepository auditLogRepository;
@@ -57,6 +56,7 @@ class InstallmentServiceTest {
 	@Mock private DepositService depositService;
 	@Mock private SalesOrderRepository salesOrderRepository;
 	@Mock private InstallmentPaymentCacheService installmentPaymentCacheService;
+	@Mock private OtpVerificationRepository otpVerificationRepository;
 	@Mock private HttpServletRequest httpServletRequest;
 
 	@InjectMocks
@@ -74,7 +74,8 @@ class InstallmentServiceTest {
 		customer = new User();
 		customer.setId(1L);
 		customer.setName("User A");
-		customer.setPhone("090");
+		customer.setPhone("0900000001");
+		customer.setProfileCompletionRequired(false);
 		vehicle = new Vehicle();
 		vehicle.setId(100L);
 		vehicle.setTitle("Car");
@@ -142,38 +143,23 @@ class InstallmentServiceTest {
 	}
 
 	@Test
-	void appraise_withoutBankCode_fail() {
-		app.setBankCode(null);
-		when(applicationRepository.findByIdWithVehicle(10L)).thenReturn(Optional.of(app));
-		BusinessException ex = assertThrows(BusinessException.class, () -> installmentService.appraiseApplication(5L, "staff", 10L));
-		assertEquals(ErrorCode.VALIDATION_FAILED, ex.getErrorCode());
-	}
-
-	@Test
-	void appraise_withBankCode_ok() {
-		when(applicationRepository.findByIdWithVehicle(10L)).thenReturn(Optional.of(app));
+	void markBankProcessing_ok() {
+		app.setStatus(InstallmentApplication.Status.PENDING_DOCUMENT);
+		when(applicationRepository.findByIdWithVehicleAndDocuments(10L)).thenReturn(Optional.of(app));
 		when(applicationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-		when(bankIntegrationService.applyLoan(any(), eq(5L), eq("staff"))).thenReturn("LOAN-1");
 
-		installmentService.appraiseApplication(5L, "staff", 10L);
+		installmentService.markBankProcessing(5L, "staff", 10L);
 		assertEquals(InstallmentApplication.Status.BANK_PROCESSING, app.getStatus());
 	}
 
 	@Test
-	void appraise_whenCreditService400_mapsToValidationFailed() {
-		when(applicationRepository.findByIdWithVehicle(10L)).thenReturn(Optional.of(app));
+	void approveApplication_ok() {
+		app.setStatus(InstallmentApplication.Status.BANK_PROCESSING);
+		when(applicationRepository.findByIdWithVehicleAndDocuments(10L)).thenReturn(Optional.of(app));
 		when(applicationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-		when(bankIntegrationService.applyLoan(any(), eq(5L), eq("staff")))
-				.thenThrow(new BankIntegrationService.CreditSyncException(
-						"Loi submit loan toi credit-service. HTTP 400",
-						false,
-						400,
-						"{\"error\":\"loanTermMonths is required\"}"));
 
-		BusinessException ex = assertThrows(BusinessException.class,
-				() -> installmentService.appraiseApplication(5L, "staff", 10L));
-		assertEquals(ErrorCode.VALIDATION_FAILED, ex.getErrorCode());
-		assertTrue(ex.getMessage().contains("loanTermMonths"));
+		installmentService.approveApplication(5L, "staff", 10L);
+		assertEquals(InstallmentApplication.Status.APPROVED, app.getStatus());
 	}
 
 	@Test
@@ -258,20 +244,44 @@ class InstallmentServiceTest {
 	}
 
 	@Test
-	void webhook_rejected_keepsManualRefundFlow() throws Exception {
-		app.setBankLoanId("L-1");
-		app.setStatus(InstallmentApplication.Status.BANK_PROCESSING);
-		Deposit pre = new Deposit();
-		pre.setId(77L);
-		app.setPreDeposit(pre);
-		when(applicationRepository.findByBankLoanId("L-1")).thenReturn(Optional.of(app));
+	void updateApplication_pendingDocumentWithoutOtp_fail() {
+		req.setStatus("PENDING_DOCUMENT");
+		app.setStatus(InstallmentApplication.Status.DRAFT);
+		app.setRequestPreDeposit(false);
+		when(applicationRepository.findById(10L)).thenReturn(Optional.of(app));
+		when(depositRepository.findByCustomerIdAndVehicleIdAndStatusIn(anyLong(), anyLong(), any()))
+				.thenReturn(java.util.List.of(new Deposit()));
+
+		BusinessException ex = assertThrows(BusinessException.class,
+				() -> installmentService.updateApplication(1L, 10L, req));
+		assertEquals(ErrorCode.OTP_REFERENCE_INVALID, ex.getErrorCode());
+	}
+
+	@Test
+	void updateApplication_pendingDocumentWithVerifiedOtp_ok() {
+		req.setStatus("PENDING_DOCUMENT");
+		req.setOtpVerificationId(999L);
+		req.setPhoneNumber("0900000001");
+		app.setStatus(InstallmentApplication.Status.DRAFT);
+		app.setRequestPreDeposit(false);
+		when(applicationRepository.findById(10L)).thenReturn(Optional.of(app));
+		when(depositRepository.findByCustomerIdAndVehicleIdAndStatusIn(anyLong(), anyLong(), any()))
+				.thenReturn(java.util.List.of(new Deposit()));
+		when(applicationRepository.existsByOtpVerificationId(999L)).thenReturn(false);
+
+		OtpVerification otp = new OtpVerification();
+		otp.setId(999L);
+		otp.setPhone("0900000001");
+		otp.setReferenceType("installment");
+		otp.setReferenceId(10L);
+		otp.setStatus(OtpVerification.STATUS_VERIFIED);
+		otp.setVerifiedAt(Instant.now());
+		when(otpVerificationRepository.findById(999L)).thenReturn(Optional.of(otp));
 		when(applicationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-		String payload = new ObjectMapper().writeValueAsString(Map.of("loanId", "L-1", "status", "REJECTED", "rejectionReason", "x"));
-		installmentService.handleBankWebhook(payload);
-
-		assertEquals(InstallmentApplication.Status.REJECTED, app.getStatus());
-		verify(statusHistoryRepository).save(any());
-		assertTrue(app.getPreDeposit() != null);
+		var res = installmentService.updateApplication(1L, 10L, req);
+		assertEquals("PENDING_DOCUMENT", res.getStatus());
+		assertEquals(999L, app.getOtpVerificationId());
 	}
+
 }

@@ -61,6 +61,9 @@ public class User extends BaseEntity {
 	@Column(name = "password_change_required", nullable = false)
 	private Boolean passwordChangeRequired = false;
 
+	@Column(name = "profile_completion_required", nullable = false)
+	private Boolean profileCompletionRequired = false;
+
 	@BatchSize(size = 32)
 	@OneToMany(mappedBy = "user", cascade = CascadeType.PERSIST, orphanRemoval = false)
 	private Set<UserRole> userRoles = new HashSet<>();

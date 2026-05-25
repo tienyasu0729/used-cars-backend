@@ -21,13 +21,17 @@ import scu.dn.used_cars_backend.security.AuthenticationDetailsUtils;
 import scu.dn.used_cars_backend.security.JwtRoleNames;
 import scu.dn.used_cars_backend.service.DepositOtpService;
 import scu.dn.used_cars_backend.sms.dto.OtpResponse;
+import scu.dn.used_cars_backend.sms.service.OtpService;
 
 @RestController
 @RequestMapping("/api/v1/deposits")
 @RequiredArgsConstructor
 public class DepositOtpController {
 
+	private static final String REFERENCE_TYPE_DEPOSIT = "deposit";
+
 	private final DepositOtpService depositOtpService;
+	private final OtpService otpService;
 
 	@PostMapping("/request-otp")
 	@PreAuthorize("hasAnyRole('CUSTOMER','SALESSTAFF','BRANCHMANAGER','ADMIN')")
@@ -35,6 +39,18 @@ public class DepositOtpController {
 			@Valid @RequestBody DepositOtpRequest body,
 			Authentication auth) {
 		long uid = AuthenticationDetailsUtils.requireUserId(auth);
+		OtpResponse response = depositOtpService.requestOtp(uid, body.getPhone());
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
+	@PostMapping("/resend-otp")
+	@PreAuthorize("hasAnyRole('CUSTOMER','SALESSTAFF','BRANCHMANAGER','ADMIN')")
+	public ResponseEntity<ApiResponse<OtpResponse>> resendOtp(
+			@Valid @RequestBody DepositOtpRequest body,
+			Authentication auth) {
+		long uid = AuthenticationDetailsUtils.requireUserId(auth);
+		otpService.findPendingOtp(body.getPhone(), REFERENCE_TYPE_DEPOSIT)
+				.ifPresent(otp -> otpService.invalidateOtp(otp.getId()));
 		OtpResponse response = depositOtpService.requestOtp(uid, body.getPhone());
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}

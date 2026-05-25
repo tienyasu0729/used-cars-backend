@@ -61,7 +61,15 @@ spring:
 
   flyway:
 
-    enabled: false
+    enabled: true
+
+    locations: classpath:db/migration
+
+    baseline-on-migrate: true
+
+    baseline-version: 6
+
+    ignore-missing-migrations: true
 
 
 
@@ -73,7 +81,7 @@ spring:
 
     username: "otocudanang123@gmail.com"
 
-    password: "frwqolqmnuzfjlrb"
+    password: "hjnksliewebuvied"
 
     properties:
 
@@ -182,35 +190,6 @@ app:
     api-key: "767919882347391"
 
     api-secret: "Kcyqq0mrG8mMoRgLp-3XFZubv7E"
-
-
-
-  credit-service:
-
-    url: "https://credit-service-n2s5.onrender.com/api/loan/apply"
-
-    status-endpoint: "https://credit-service-n2s5.onrender.com/api/loan/status"
-
-    api-key: "fb_3652d9c281d287acced1963b6ee75b49"
-
-    secret: "cac3e64970bf86f8fe94f36ebe438034c463e44448e32bd03314bbcef91ac27d"
-
-    api-secret: "cac3e64970bf86f8fe94f36ebe438034c463e44448e32bd03314bbcef91ac27d"
-
-    timeout-ms: 10000
-
-    connect-timeout-ms: 3000
-
-    retry:
-
-      fixed-delay-ms: 15000
-
-      base-delay-ms: 5000
-
-      max-delay-ms: 900000
-
-      batch-size: 20
-
 
 
   order:

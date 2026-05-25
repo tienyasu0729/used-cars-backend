@@ -37,6 +37,8 @@ import scu.dn.used_cars_backend.repository.InstallmentStatusHistoryRepository;
 import scu.dn.used_cars_backend.repository.SalesOrderRepository;
 import scu.dn.used_cars_backend.repository.UserRepository;
 import scu.dn.used_cars_backend.repository.VehicleRepository;
+import scu.dn.used_cars_backend.sms.entity.OtpVerification;
+import scu.dn.used_cars_backend.sms.repository.OtpVerificationRepository;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -56,20 +58,19 @@ public class InstallmentService {
 	private static final BigDecimal PREPAY_AMOUNT_TOLERANCE = new BigDecimal("1000");
 	private static final long INSTALLMENT_PRE_DEPOSIT_TIMEOUT_MINUTES = 60;
 	private static final List<String> DEPOSIT_LOCK_STATUSES = List.of("Pending", "Confirmed", "AwaitingPayment");
-	private static final List<String> DEPOSIT_VALID_STATUSES = List.of("Pending", "Confirmed");
+	private static final List<String> DEPOSIT_VALID_STATUSES = List.of("Confirmed");
 	private static final List<String> ORDER_LOCK_STATUSES = List.of("Pending", "Processing", "Completed");
 	private static final Set<InstallmentApplication.Status> SINGLE_CREATE_LOCK_STATUSES = Set.of(
 			InstallmentApplication.Status.DRAFT);
 	private static final String DEPOSIT_RECEIPT_DOC_TYPE = "DEPOSIT_RECEIPT";
-	private static final Set<String> SUPPORTED_BANK_CODES = Set.of(
-			"VCB", "TCB", "BIDV", "VPB", "ACB", "MB", "VIB", "SACOMBANK");
+	private static final String INSTALLMENT_OTP_REFERENCE = "installment";
+	private static final long INSTALLMENT_OTP_VERIFIED_MAX_AGE_MINUTES = 15;
 
 	private final InstallmentApplicationRepository applicationRepository;
 	private final InstallmentDocumentRepository documentRepository;
 	private final UserRepository userRepository;
 	private final VehicleRepository vehicleRepository;
 	private final CloudinaryDocumentService cloudinaryDocumentService;
-	private final BankIntegrationService bankIntegrationService;
 	private final InstallmentStatusHistoryRepository statusHistoryRepository;
 	private final InAppNotificationRepository notificationRepository;
 	private final AuditLogRepository auditLogRepository;
@@ -77,6 +78,7 @@ public class InstallmentService {
 	private final DepositService depositService;
 	private final SalesOrderRepository salesOrderRepository;
 	private final InstallmentPaymentCacheService installmentPaymentCacheService;
+	private final OtpVerificationRepository otpVerificationRepository;
 
 	@Value("${app.installment.pre-deposit-percent:10}")
 	private BigDecimal preDepositPercent;
@@ -85,6 +87,7 @@ public class InstallmentService {
 	public InstallmentApplicationResponse saveApplication(Long customerId, SaveInstallmentApplicationRequest request) {
 		User customer = userRepository.findById(customerId)
 				.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "Khong tim thay nguoi dung."));
+		ProfileCompletionSupport.assertCustomerProfileComplete(customer);
 		Vehicle vehicle = vehicleRepository.findById(request.getVehicleId())
 				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Khong tim thay xe."));
 		assertVehicleStillAvailableForCustomer(vehicle, customerId);
@@ -99,7 +102,7 @@ public class InstallmentService {
 			if (request.getStatus() != null) {
 				try {
 					InstallmentApplication.Status requested = InstallmentApplication.Status.valueOf(request.getStatus().toUpperCase());
-					app.setStatus(resolveRequestedStatus(customer.getId(), vehicle.getId(), app, requested));
+					app.setStatus(resolveRequestedStatus(customer.getId(), vehicle.getId(), app, requested, request, true));
 				} catch (IllegalArgumentException ignored) {
 					// keep current status
 				}
@@ -119,7 +122,7 @@ public class InstallmentService {
 		if (request.getStatus() != null) {
 			try {
 				InstallmentApplication.Status requested = InstallmentApplication.Status.valueOf(request.getStatus().toUpperCase());
-				app.setStatus(resolveRequestedStatus(customer.getId(), vehicle.getId(), app, requested));
+				app.setStatus(resolveRequestedStatus(customer.getId(), vehicle.getId(), app, requested, request, true));
 			} catch (IllegalArgumentException e) {
 				app.setStatus(InstallmentApplication.Status.DRAFT);
 			}
@@ -140,6 +143,7 @@ public class InstallmentService {
 		if (!app.getCustomer().getId().equals(customerId)) {
 			throw new BusinessException(ErrorCode.FORBIDDEN, "Ban khong co quyen sua ho so nay.");
 		}
+		ProfileCompletionSupport.assertCustomerProfileComplete(app.getCustomer());
 		assertVehicleStillAvailableForCustomer(app.getVehicle(), customerId);
 		assertSingleActiveApplicationPerCustomer(customerId, app.getId());
 		updateApplicationFields(app, request);
@@ -147,7 +151,7 @@ public class InstallmentService {
 		if (request.getStatus() != null) {
 			try {
 				InstallmentApplication.Status requested = InstallmentApplication.Status.valueOf(request.getStatus().toUpperCase());
-				app.setStatus(resolveRequestedStatus(app.getCustomer().getId(), app.getVehicle().getId(), app, requested));
+				app.setStatus(resolveRequestedStatus(app.getCustomer().getId(), app.getVehicle().getId(), app, requested, request, true));
 			} catch (IllegalArgumentException ignored) {
 				// keep current status
 			}
@@ -162,7 +166,7 @@ public class InstallmentService {
 
 	@Transactional(readOnly = true)
 	public InstallmentApplicationResponse getApplication(Long userId, String role, Long id) {
-		InstallmentApplication app = applicationRepository.findById(id)
+		InstallmentApplication app = applicationRepository.findByIdWithVehicleAndDocuments(id)
 				.orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Khong tim thay ho so."));
 		if (!"ADMIN".equals(role) && !"SALESSTAFF".equalsIgnoreCase(role) && !app.getCustomer().getId().equals(userId)) {
 			throw new BusinessException(ErrorCode.FORBIDDEN, "Ban khong co quyen xem ho so nay.");
@@ -294,7 +298,7 @@ public class InstallmentService {
 			if (request.getStatus() != null) {
 				try {
 					InstallmentApplication.Status requested = InstallmentApplication.Status.valueOf(request.getStatus().toUpperCase());
-					app.setStatus(resolveRequestedStatus(customer.getId(), vehicle.getId(), app, requested));
+					app.setStatus(resolveRequestedStatus(customer.getId(), vehicle.getId(), app, requested, request, false));
 				} catch (IllegalArgumentException ignored) {
 					// keep current status
 				}
@@ -310,7 +314,7 @@ public class InstallmentService {
 		if (request.getStatus() != null) {
 			try {
 				InstallmentApplication.Status requested = InstallmentApplication.Status.valueOf(request.getStatus().toUpperCase());
-				app.setStatus(resolveRequestedStatus(customer.getId(), vehicle.getId(), app, requested));
+				app.setStatus(resolveRequestedStatus(customer.getId(), vehicle.getId(), app, requested, request, false));
 			} catch (IllegalArgumentException e) {
 				app.setStatus(InstallmentApplication.Status.DRAFT);
 			}
@@ -422,117 +426,66 @@ public class InstallmentService {
 		documentRepository.delete(doc);
 	}
 
-	public void appraiseApplication(Long staffId, String staffName, Long id) {
+	@Transactional
+	public void markBankProcessing(Long staffId, String staffName, Long id) {
 		InstallmentApplication app = applicationRepository.findByIdWithVehicleAndDocuments(id)
 				.orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Khong tim thay ho so."));
 		if (app.getStatus() != InstallmentApplication.Status.PENDING_DOCUMENT
 				&& app.getStatus() != InstallmentApplication.Status.DRAFT) {
-			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Chi ho so DRAFT/PENDING_DOCUMENT moi duoc tham dinh.");
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+					"Chi ho so DRAFT/PENDING_DOCUMENT moi chuyen sang lam thu tuc ngan hang.");
 		}
-		validateBankCodeRequired(app);
 		InstallmentApplication.Status oldStatus = app.getStatus();
 		app.setStatus(InstallmentApplication.Status.BANK_PROCESSING);
 		applicationRepository.save(app);
-		recordStatusHistory(app, oldStatus, InstallmentApplication.Status.BANK_PROCESSING, "Gui tham dinh boi Staff #" + staffId);
-		String bankLoanId;
-		try {
-			bankLoanId = bankIntegrationService.applyLoan(app, staffId, staffName);
-		} catch (BankIntegrationService.CreditSyncException ex) {
-			Integer httpCode = ex.getHttpCode();
-			if (httpCode != null && httpCode >= 400 && httpCode < 500) {
-				String upstream = ex.getUpstreamBody();
-				String detail = (upstream == null || upstream.isBlank()) ? ex.getMessage() : upstream;
-				throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-						"Ho so gui tham dinh khong hop le: " + detail);
-			}
-			throw new BusinessException(ErrorCode.BANK_API_ERROR, ex.getMessage());
-		}
-		app.setBankLoanId(bankLoanId);
-		applicationRepository.save(app);
-	}
-
-	public void handleBankWebhook(String rawPayload) throws Exception {
-		com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-		java.util.Map<String, Object> body = mapper.readValue(rawPayload, java.util.Map.class);
-		String loanId = firstNonBlank(
-				stringValue(body.get("loanId")),
-				stringValue(body.get("loan_id")),
-				stringValue(body.get("id")));
-		String statusStr = firstNonBlank(
-				stringValue(body.get("status")),
-				stringValue(body.get("decision")),
-				stringValue(body.get("result")));
-		String reason = firstNonBlank(
-				stringValue(body.get("rejectionReason")),
-				stringValue(body.get("rejection_reason")),
-				stringValue(body.get("reason")));
-		String pdfUrl = firstNonBlank(
-				stringValue(body.get("pdfUrl")),
-				stringValue(body.get("pdf_url")),
-				stringValue(body.get("contractUrl")));
-		if (loanId == null || statusStr == null) {
-			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Payload thieu loanId hoac status.");
-		}
-		InstallmentApplication app = applicationRepository.findByBankLoanId(loanId)
-				.orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Khong tim thay ho so cho loanId: " + loanId));
-		applyCreditDecision(app, statusStr, reason, pdfUrl, "WEBHOOK");
-	}
-
-	private String stringValue(Object v) {
-		if (v == null) return null;
-		String s = v.toString().trim();
-		return s.isEmpty() ? null : s;
-	}
-
-	private String firstNonBlank(String... values) {
-		if (values == null) return null;
-		for (String v : values) {
-			if (v != null && !v.isBlank()) return v.trim();
-		}
-		return null;
+		recordStatusHistory(app, oldStatus, InstallmentApplication.Status.BANK_PROCESSING,
+				"Danh dau lam thu tuc NH boi #" + staffId + " (" + staffName + ")");
 	}
 
 	@Transactional
-	public void applyCreditDecision(
-			InstallmentApplication app,
-			String statusStr,
-			String reason,
-			String pdfUrl,
-			String source) {
-		InstallmentApplication.Status targetStatus;
-		if ("APPROVED".equalsIgnoreCase(statusStr)) {
-			targetStatus = InstallmentApplication.Status.APPROVED;
-		} else if ("REJECTED".equalsIgnoreCase(statusStr)) {
-			targetStatus = InstallmentApplication.Status.REJECTED;
-		} else {
-			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Status khong hop le: " + statusStr);
+	public void approveApplication(Long staffId, String staffName, Long id) {
+		InstallmentApplication app = applicationRepository.findByIdWithVehicleAndDocuments(id)
+				.orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Khong tim thay ho so."));
+		if (app.getStatus() != InstallmentApplication.Status.BANK_PROCESSING
+				&& app.getStatus() != InstallmentApplication.Status.PENDING_DOCUMENT
+				&& app.getStatus() != InstallmentApplication.Status.DRAFT) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+					"Chi ho so cho xu ly/lam thu tuc ngan hang moi duoc cap nhat duyet.");
 		}
-		if (app.getStatus() == targetStatus) {
-			log.info("Skip duplicate credit decision for appId={}, source={}, status={}", app.getId(), source, targetStatus);
-			return;
-		}
-
 		InstallmentApplication.Status oldStatus = app.getStatus();
-		app.setStatus(targetStatus);
-		if (targetStatus == InstallmentApplication.Status.APPROVED) {
-			app.setBankPdfUrl(pdfUrl);
-			app.setRejectionReason(null);
-		} else {
-			app.setRejectionReason(reason);
-		}
+		app.setStatus(InstallmentApplication.Status.APPROVED);
+		app.setRejectionReason(null);
 		applicationRepository.save(app);
-
-		InstallmentStatusHistory history = new InstallmentStatusHistory();
-		history.setApplication(app);
-		history.setOldStatus(oldStatus);
-		history.setNewStatus(app.getStatus());
-		history.setNote("Bank " + source + ": " + statusStr + (reason != null ? " - " + reason : ""));
-		history.setChangedBy(null);
-		statusHistoryRepository.save(history);
-		sendWebhookNotification(app, statusStr, reason);
-		notifyStaffAndManagersInstallmentDecision(app, statusStr, reason);
-		saveWebhookAuditLog(app, statusStr, reason);
+		recordStatusHistory(app, oldStatus, InstallmentApplication.Status.APPROVED,
+				"Ngan hang duyet (cap nhat thu cong) boi #" + staffId + " (" + staffName + ")");
+		sendWebhookNotification(app, "APPROVED", null);
+		notifyStaffAndManagersInstallmentDecision(app, "APPROVED", null);
 	}
+
+	@Transactional
+	public void rejectApplication(Long staffId, String staffName, Long id, String rejectionReason) {
+		InstallmentApplication app = applicationRepository.findByIdWithVehicleAndDocuments(id)
+				.orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Khong tim thay ho so."));
+		if (app.getStatus() != InstallmentApplication.Status.BANK_PROCESSING
+				&& app.getStatus() != InstallmentApplication.Status.PENDING_DOCUMENT
+				&& app.getStatus() != InstallmentApplication.Status.DRAFT) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
+					"Chi ho so cho xu ly/lam thu tuc ngan hang moi duoc cap nhat tu choi.");
+		}
+		String reason = rejectionReason != null ? rejectionReason.trim() : "";
+		if (reason.isEmpty()) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Ly do tu choi la bat buoc.");
+		}
+		InstallmentApplication.Status oldStatus = app.getStatus();
+		app.setStatus(InstallmentApplication.Status.REJECTED);
+		app.setRejectionReason(reason);
+		applicationRepository.save(app);
+		recordStatusHistory(app, oldStatus, InstallmentApplication.Status.REJECTED,
+				"Ngan hang tu choi (cap nhat thu cong) boi #" + staffId + " (" + staffName + "): " + reason);
+		sendWebhookNotification(app, "REJECTED", reason);
+		notifyStaffAndManagersInstallmentDecision(app, "REJECTED", reason);
+	}
+
 
 	@Transactional
 	public CreateDepositResponse createPreDeposit(Long customerId, String role, Long applicationId,
@@ -672,7 +625,7 @@ public class InstallmentService {
 			notification.setLink("/installments/applications/" + app.getId());
 			if ("APPROVED".equalsIgnoreCase(status)) {
 				notification.setTitle("Ho so tra gop duoc phe duyet");
-				notification.setBody("Ho so tra gop #" + app.getId() + " da duoc ngan hang phe duyet.");
+				notification.setBody("Ho so tra gop #" + app.getId() + " da duoc phe duyet. Vui long lien he chi nhanh de biet buoc tiep theo.");
 			} else {
 				notification.setTitle("Ho so tra gop bi tu choi");
 				notification.setBody("Ho so tra gop #" + app.getId() + " bi tu choi."
@@ -684,22 +637,6 @@ public class InstallmentService {
 		}
 	}
 
-	private void saveWebhookAuditLog(InstallmentApplication app, String status, String reason) {
-		try {
-			AuditLog auditLog = new AuditLog();
-			auditLog.setUserId(null);
-			auditLog.setUserName("SYSTEM_WEBHOOK");
-			auditLog.setModule("INSTALLMENT");
-			auditLog.setAction("WEBHOOK_" + status.toUpperCase());
-			auditLog.setDetails("AppID: " + app.getId()
-					+ " | LoanID: " + app.getBankLoanId()
-					+ " | Status: " + status
-					+ (reason != null ? " | Reason: " + reason : ""));
-			auditLogRepository.save(auditLog);
-		} catch (Exception e) {
-			log.error("Loi ghi audit log webhook: {}", e.getMessage());
-		}
-	}
 
 	@Transactional
 	public void linkDeposit(Long staffId, Long applicationId, Long depositId) {
@@ -800,13 +737,18 @@ public class InstallmentService {
 			Long customerId,
 			Long vehicleId,
 			InstallmentApplication app,
-			InstallmentApplication.Status requested) {
+			InstallmentApplication.Status requested,
+			SaveInstallmentApplicationRequest request,
+			boolean requireOtpVerification) {
 		assertVehicleStillAvailableForCustomer(app.getVehicle(), customerId);
 		if (requested != InstallmentApplication.Status.PENDING_DOCUMENT) {
 			return requested;
 		}
 		InstallmentSubmitEligibilityResponse eligibility = buildSubmitEligibility(app, customerId, vehicleId);
 		if (Boolean.TRUE.equals(eligibility.getCanSubmit())) {
+			if (requireOtpVerification) {
+				assertAndLinkInstallmentOtp(app, request);
+			}
 			return InstallmentApplication.Status.PENDING_DOCUMENT;
 		}
 		// Neu chua co coc hop le theo xe/user thi bat co requestPreDeposit de frontend
@@ -817,6 +759,47 @@ public class InstallmentService {
 		throw new BusinessException(
 				ErrorCode.VALIDATION_FAILED,
 				"Chua du dieu kien gui ho so tra gop: " + eligibility.getBlockingReason());
+	}
+
+	private void assertAndLinkInstallmentOtp(InstallmentApplication app, SaveInstallmentApplicationRequest request) {
+		Long otpVerificationId = request.getOtpVerificationId();
+		if (otpVerificationId == null) {
+			throw new BusinessException(ErrorCode.OTP_REFERENCE_INVALID,
+					"Can xac thuc OTP truoc khi gui ho so tra gop.");
+		}
+
+		OtpVerification otp = otpVerificationRepository.findById(otpVerificationId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.OTP_REFERENCE_INVALID,
+						"Ma xac thuc OTP khong hop le."));
+
+		if (!INSTALLMENT_OTP_REFERENCE.equals(otp.getReferenceType())) {
+			throw new BusinessException(ErrorCode.OTP_REFERENCE_INVALID, "Ma OTP khong thuoc ho so tra gop.");
+		}
+		if (!OtpVerification.STATUS_VERIFIED.equals(otp.getStatus())) {
+			throw new BusinessException(ErrorCode.OTP_REFERENCE_INVALID,
+					"Ma OTP chua duoc xac thuc. Vui long xac thuc lai.");
+		}
+		if (otp.getVerifiedAt() == null
+				|| otp.getVerifiedAt().isBefore(Instant.now().minus(Duration.ofMinutes(INSTALLMENT_OTP_VERIFIED_MAX_AGE_MINUTES)))) {
+			throw new BusinessException(ErrorCode.OTP_EXPIRED,
+					"Ma OTP da het han. Vui long yeu cau ma moi.");
+		}
+		if (app.getId() != null && otp.getReferenceId() != null && !app.getId().equals(otp.getReferenceId())) {
+			throw new BusinessException(ErrorCode.OTP_REFERENCE_INVALID, "Ma OTP khong khop voi ho so tra gop.");
+		}
+
+		String expectedPhone = request.getPhoneNumber() != null ? request.getPhoneNumber().trim() : app.getPhoneNumber();
+		if (expectedPhone != null && otp.getPhone() != null && !expectedPhone.equals(otp.getPhone().trim())) {
+			throw new BusinessException(ErrorCode.OTP_REFERENCE_INVALID,
+					"So dien thoai xac thuc OTP khong khop voi ho so.");
+		}
+
+		if (applicationRepository.existsByOtpVerificationId(otpVerificationId)) {
+			throw new BusinessException(ErrorCode.OTP_ALREADY_VERIFIED,
+					"Ma OTP da duoc su dung cho ho so tra gop khac.");
+		}
+
+		app.setOtpVerificationId(otpVerificationId);
 	}
 
 	private InstallmentApplicationResponse mapToResponse(InstallmentApplication app) {
@@ -1008,18 +991,6 @@ public class InstallmentService {
 		}
 	}
 
-	private void validateBankCodeRequired(InstallmentApplication app) {
-		String code = app.getBankCode();
-		if (code == null || code.isBlank()) {
-			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Bank code la bat buoc truoc khi tham dinh.");
-		}
-		String normalized = code.trim().toUpperCase();
-		if (!SUPPORTED_BANK_CODES.contains(normalized)) {
-			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Bank code khong hop le.");
-		}
-		app.setBankCode(normalized);
-	}
-
 	private void notifyStaffAndManagersNewInstallment(InstallmentApplication app) {
 		try {
 			List<User> recipients = userRepository.findActiveStaffAndManagersWithRoles();
@@ -1029,7 +1000,7 @@ public class InstallmentService {
 				noti.setUser(recipient);
 				noti.setType("INSTALLMENT");
 				noti.setTitle("Có hồ sơ trả góp mới");
-				noti.setBody("Ho so #" + app.getId() + " vua duoc gui, can duyet.");
+				noti.setBody("Ho so #" + app.getId() + " vua duoc gui, can xu ly va xuat ho so.");
 				noti.setLink(resolveInstallmentInboxLinkForRecipient(recipient));
 				noti.setNotificationRead(false);
 				notificationRepository.save(noti);
@@ -1051,8 +1022,8 @@ public class InstallmentService {
 				noti.setTitle(approved ? "Hồ sơ trả góp đã được phê duyệt" : "Hồ sơ trả góp bị từ chối");
 				noti.setBody(
 						approved
-								? "Ho so #" + app.getId() + " da co ket qua phe duyet tu credit."
-								: "Ho so #" + app.getId() + " bi tu choi."
+								? "Ho so #" + app.getId() + " da duoc cap nhat ket qua duyet."
+								: "Ho so #" + app.getId() + " da duoc cap nhat tu choi."
 										+ (reason != null && !reason.isBlank() ? " Ly do: " + reason : ""));
 				noti.setLink(resolveInstallmentInboxLinkForRecipient(recipient));
 				noti.setNotificationRead(false);

@@ -59,7 +59,7 @@ public class DepositController {
 		return ResponseEntity.ok(ApiResponse.success(rows, depositService.pageMeta(uid, role, status, page, size)));
 	}
 
-	@GetMapping("/{id}")
+	@GetMapping("/{id:\\d+}")
 	public ResponseEntity<ApiResponse<DepositListItemDto>> get(@PathVariable long id, Authentication auth) {
 		long uid = AuthenticationDetailsUtils.requireUserId(auth);
 		String role = JwtRoleNames.primaryRole(auth);
@@ -91,15 +91,6 @@ public class DepositController {
 		long uid = AuthenticationDetailsUtils.requireUserId(auth);
 		String role = JwtRoleNames.primaryRole(auth);
 		depositService.cancelConfirmedDeposit(uid, role, id, body.getReason());
-		return ResponseEntity.ok(ApiResponse.success(null));
-	}
-
-	@PatchMapping("/{id}/confirm")
-	@PreAuthorize("hasAnyRole('ADMIN','BRANCHMANAGER','SALESSTAFF')")
-	public ResponseEntity<ApiResponse<Void>> confirm(@PathVariable long id, Authentication auth) {
-		long uid = AuthenticationDetailsUtils.requireUserId(auth);
-		String role = JwtRoleNames.primaryRole(auth);
-		depositService.confirm(uid, role, id);
 		return ResponseEntity.ok(ApiResponse.success(null));
 	}
 

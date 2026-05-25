@@ -101,8 +101,7 @@ public interface DepositRepository extends JpaRepository<Deposit, Long> {
 
 	long countByCustomerIdAndStatusIn(long customerId, List<String> statuses);
 
-	// Chỉ AwaitingPayment: chờ user thanh toán trên cổng. Pending sau khi đã trả VNPay/Zalo là cọc đã thanh toán
-	// (chờ showroom xác nhận) — không được hủy theo timeout tạo cọc.
+	// Chỉ AwaitingPayment: chờ user thanh toán trên cổng — không được hủy theo timeout tạo cọc.
 	@Query("""
 			select d.id from Deposit d
 			where d.status = 'AwaitingPayment'
@@ -114,7 +113,7 @@ public interface DepositRepository extends JpaRepository<Deposit, Long> {
 	@Query(value = """
 			select d from Deposit d
 			where (:statusBucket is null
-				or (:statusBucket = 'COMPLETED' and d.status in ('Confirmed','Pending'))
+				or (:statusBucket = 'COMPLETED' and d.status = 'Confirmed')
 				or (:statusBucket = 'PENDING' and d.status = 'AwaitingPayment')
 				or (:statusBucket = 'CANCELLED' and d.status = 'Cancelled'))
 			and (:fromInclusive is null or d.createdAt >= :fromInclusive)
@@ -128,7 +127,7 @@ public interface DepositRepository extends JpaRepository<Deposit, Long> {
 			countQuery = """
 			select count(d) from Deposit d
 			where (:statusBucket is null
-				or (:statusBucket = 'COMPLETED' and d.status in ('Confirmed','Pending'))
+				or (:statusBucket = 'COMPLETED' and d.status = 'Confirmed')
 				or (:statusBucket = 'PENDING' and d.status = 'AwaitingPayment')
 				or (:statusBucket = 'CANCELLED' and d.status = 'Cancelled'))
 			and (:fromInclusive is null or d.createdAt >= :fromInclusive)
@@ -149,7 +148,7 @@ public interface DepositRepository extends JpaRepository<Deposit, Long> {
 			select d from Deposit d, Vehicle v
 			where d.vehicleId = v.id and v.deleted = false and v.branch.id = :branchId
 			and (:statusBucket is null
-				or (:statusBucket = 'COMPLETED' and d.status in ('Confirmed','Pending'))
+				or (:statusBucket = 'COMPLETED' and d.status = 'Confirmed')
 				or (:statusBucket = 'PENDING' and d.status = 'AwaitingPayment')
 				or (:statusBucket = 'CANCELLED' and d.status = 'Cancelled'))
 			and (:fromInclusive is null or d.createdAt >= :fromInclusive)
@@ -164,7 +163,7 @@ public interface DepositRepository extends JpaRepository<Deposit, Long> {
 			select count(d) from Deposit d, Vehicle v
 			where d.vehicleId = v.id and v.deleted = false and v.branch.id = :branchId
 			and (:statusBucket is null
-				or (:statusBucket = 'COMPLETED' and d.status in ('Confirmed','Pending'))
+				or (:statusBucket = 'COMPLETED' and d.status = 'Confirmed')
 				or (:statusBucket = 'PENDING' and d.status = 'AwaitingPayment')
 				or (:statusBucket = 'CANCELLED' and d.status = 'Cancelled'))
 			and (:fromInclusive is null or d.createdAt >= :fromInclusive)
@@ -185,7 +184,7 @@ public interface DepositRepository extends JpaRepository<Deposit, Long> {
 	@Query("""
 			select count(d) from Deposit d
 			where (:statusBucket is null
-				or (:statusBucket = 'COMPLETED' and d.status in ('Confirmed','Pending'))
+				or (:statusBucket = 'COMPLETED' and d.status = 'Confirmed')
 				or (:statusBucket = 'PENDING' and d.status = 'AwaitingPayment')
 				or (:statusBucket = 'CANCELLED' and d.status = 'Cancelled'))
 			and (:fromInclusive is null or d.createdAt >= :fromInclusive)
@@ -205,7 +204,7 @@ public interface DepositRepository extends JpaRepository<Deposit, Long> {
 			select count(d) from Deposit d, Vehicle v
 			where d.vehicleId = v.id and v.deleted = false and v.branch.id = :branchId
 			and (:statusBucket is null
-				or (:statusBucket = 'COMPLETED' and d.status in ('Confirmed','Pending'))
+				or (:statusBucket = 'COMPLETED' and d.status = 'Confirmed')
 				or (:statusBucket = 'PENDING' and d.status = 'AwaitingPayment')
 				or (:statusBucket = 'CANCELLED' and d.status = 'Cancelled'))
 			and (:fromInclusive is null or d.createdAt >= :fromInclusive)

@@ -17,6 +17,7 @@ public class OrderRowDto {
 	String branchName;
 	long vehicleId;
 	String vehicleTitle;
+	String vehicleImageUrl;
 	String totalPrice;
 	String depositAmount;
 	String remainingAmount;

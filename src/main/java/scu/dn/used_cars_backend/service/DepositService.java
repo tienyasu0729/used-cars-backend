@@ -125,21 +125,19 @@ public class DepositService {
 			vehicleRepository.save(v);
 			vehicleService.evictPublicVehicleCaches(v.getId());
 		} else {
-			// Cash/offline: giu nguyen flow cu
-			d.setStatus("Pending");
+			// Cash/offline: ghi nhận cọc ngay (không cần duyệt chi nhánh)
+			d.setStatus("Confirmed");
 			depositRepository.save(d);
-			// Tao FinancialTransaction
 			FinancialTransaction tx = new FinancialTransaction();
 			tx.setUserId(customerId);
 			tx.setType("Deposit");
 			tx.setAmount(req.getAmount());
-			tx.setStatus("Pending");
+			tx.setStatus("Completed");
 			tx.setDescription("Dat coc xe #" + d.getId());
 			tx.setReferenceId(d.getId());
 			tx.setReferenceType("Deposit");
 			tx.setPaymentGateway("cash");
 			financialTransactionRepository.save(tx);
-			// Set xe RESERVED (chi voi cash)
 			v.setStatus(VehicleStatus.RESERVED.getDbValue());
 			vehicleRepository.save(v);
 			vehicleService.evictPublicVehicleCaches(v.getId());
@@ -150,8 +148,7 @@ public class DepositService {
 			}
 			d.setGatewayTxnRef(cashRef);
 			depositRepository.save(d);
-
-			// Gui email thong bao dat coc thanh cong (async, khong anh huong luong chinh)
+			finalizeDepositAsConfirmed(d, true);
 			User customer = userRepository.findById(customerId).orElse(null);
 			if (customer != null) {
 				emailNotificationService.sendDepositSuccessEmailAsync(d, v, customer);
@@ -343,10 +340,10 @@ public class DepositService {
 		Set<Long> vids = rows.stream().map(Deposit::getVehicleId).collect(Collectors.toCollection(LinkedHashSet::new));
 		Set<Long> cids = rows.stream().map(Deposit::getCustomerId).collect(Collectors.toCollection(LinkedHashSet::new));
 		Map<Long, VehicleDepositRowInfo> vmap = loadVehicleRowInfo(vids);
-		Map<Long, String> customerNames = loadCustomerNames(cids);
+		Map<Long, CustomerDepositRowInfo> customerInfo = loadCustomerInfo(cids);
 		return rows.stream()
 				.map(d -> toListItem(d, vmap.get(d.getVehicleId()),
-						customerNames.getOrDefault(d.getCustomerId(), "-")))
+						customerInfo.get(d.getCustomerId())))
 				.toList();
 	}
 
@@ -378,9 +375,8 @@ public class DepositService {
 			d = depositRepository.findById(depositId).orElse(d);
 		}
 		Map<Long, VehicleDepositRowInfo> vmap = loadVehicleRowInfo(Set.of(d.getVehicleId()));
-		Map<Long, String> customerNames = loadCustomerNames(Set.of(d.getCustomerId()));
-		return toListItem(d, vmap.get(d.getVehicleId()),
-				customerNames.getOrDefault(d.getCustomerId(), "-"));
+		Map<Long, CustomerDepositRowInfo> customerInfo = loadCustomerInfo(Set.of(d.getCustomerId()));
+		return toListItem(d, vmap.get(d.getVehicleId()), customerInfo.get(d.getCustomerId()));
 	}
 
 	@Transactional(rollbackFor = Exception.class)
@@ -390,7 +386,7 @@ public class DepositService {
 		assertCanModifyDeposit(actorUserId, jwtRole, d);
 		if ("Confirmed".equals(d.getStatus())) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED,
-					"Cọc đã xác nhận thanh toán — dùng yêu cầu hủy có lý do (cancel-confirmed).");
+					"Cọc đã đặt cọc — dùng yêu cầu hủy có lý do (cancel-confirmed).");
 		}
 		boolean awaitingOnline = "AwaitingPayment".equals(d.getStatus()) && d.getPaymentGateway() != null
 				&& ("vnpay".equalsIgnoreCase(d.getPaymentGateway().trim())
@@ -594,29 +590,21 @@ public class DepositService {
 		}
 	}
 
+	/**
+	 * Chuyển cọc sang Confirmed sau thanh toán / tạo cọc tiền mặt (không cần duyệt showroom).
+	 */
 	@Transactional(rollbackFor = Exception.class)
-	public void confirm(long actorUserId, String jwtRole, long depositId) {
-		Deposit d = depositRepository.findById(depositId)
-				.orElseThrow(() -> new BusinessException(ErrorCode.DEPOSIT_NOT_FOUND, "Không tìm thấy cọc."));
-		Vehicle v = vehicleRepository.findById(d.getVehicleId())
-				.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
-		if (!ROLE_ADMIN.equals(jwtRole)) {
-			int bid = staffService.getManagerBranchId(actorUserId);
-			if (v.getBranch().getId() != bid) {
-				throw new BusinessException(ErrorCode.DEPOSIT_ACCESS_DENIED, "Cọc không thuộc chi nhánh của bạn.");
-			}
-		}
-		if (!"Pending".equals(d.getStatus())) {
-			throw new BusinessException(ErrorCode.DEPOSIT_CANNOT_CONFIRM, "Chỉ cọc Chờ xác nhận mới được duyệt.");
-		}
+	public void finalizeDepositAsConfirmed(Deposit d, boolean notifyCustomer) {
 		d.setStatus("Confirmed");
 		depositRepository.save(d);
 		financialTransactionRepository.findByReferenceTypeAndReferenceId("Deposit", d.getId()).ifPresent(tx -> {
 			tx.setStatus("Completed");
 			financialTransactionRepository.save(tx);
 		});
-		inAppNotificationService.createNotification(d.getCustomerId(), "deposit", "Đặt cọc đã xác nhận",
-				"Đặt cọc xe đã được showroom xác nhận.", "/dashboard/deposits");
+		if (notifyCustomer) {
+			inAppNotificationService.createNotification(d.getCustomerId(), "deposit", "Đặt cọc thành công",
+					"Khoản đặt cọc của bạn đã được ghi nhận.", "/dashboard/deposits");
+		}
 	}
 
 	private long resolveCustomerId(long actorUserId, String jwtRole, CreateDepositRequest req) {
@@ -642,6 +630,7 @@ public class DepositService {
 		if (!isCustomer) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Người dùng không phải khách hàng.");
 		}
+		ProfileCompletionSupport.assertCustomerProfileComplete(u);
 	}
 
 	private void releaseStaleReservedVehicleIfNeeded(Vehicle v) {
@@ -707,15 +696,18 @@ public class DepositService {
 		assertCanViewDeposit(actorUserId, jwtRole, d);
 	}
 
-	private Map<Long, String> loadCustomerNames(Set<Long> userIds) {
+	private Map<Long, CustomerDepositRowInfo> loadCustomerInfo(Set<Long> userIds) {
 		if (userIds.isEmpty()) {
 			return Map.of();
 		}
 		List<User> users = userRepository.findAllByIdInAndDeletedFalse(userIds);
-		Map<Long, String> out = new HashMap<>();
+		Map<Long, CustomerDepositRowInfo> out = new HashMap<>();
 		for (User u : users) {
 			String n = u.getName();
-			out.put(u.getId(), n != null && !n.isBlank() ? n : "-");
+			String name = n != null && !n.isBlank() ? n : "-";
+			String phone = u.getPhone();
+			String phoneOut = phone != null && !phone.isBlank() ? phone.trim() : null;
+			out.put(u.getId(), new CustomerDepositRowInfo(name, phoneOut));
 		}
 		return out;
 	}
@@ -756,7 +748,9 @@ public class DepositService {
 		return appTransId;
 	}
 
-	private DepositListItemDto toListItem(Deposit d, VehicleDepositRowInfo vi, String customerName) {
+	private DepositListItemDto toListItem(Deposit d, VehicleDepositRowInfo vi, CustomerDepositRowInfo ci) {
+		String customerName = ci != null ? ci.name() : "-";
+		String customerPhone = ci != null ? ci.phone() : null;
 		String vehicleTitle = vi != null ? vi.title() : "-";
 		String vehicleImageUrl = vi != null ? vi.imageUrl() : null;
 		String st = d.getStatus();
@@ -776,6 +770,7 @@ public class DepositService {
 				.vehicleId(String.valueOf(d.getVehicleId()))
 				.customerId(String.valueOf(d.getCustomerId()))
 				.customerName(customerName)
+				.customerPhone(customerPhone)
 				.vehicleTitle(vehicleTitle)
 				.vehicleImageUrl(vehicleImageUrl)
 				.amount(d.getAmount().longValue())
@@ -789,6 +784,9 @@ public class DepositService {
 	}
 
 	private record VehicleDepositRowInfo(String title, String imageUrl) {
+	}
+
+	private record CustomerDepositRowInfo(String name, String phone) {
 	}
 
 	private String normalizeAndAssertDepositPayment(String jwtRole, String methodRaw) {

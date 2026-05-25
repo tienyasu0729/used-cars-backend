@@ -11,6 +11,7 @@ public class DepositListItemDto {
 	String vehicleId;
 	String customerId;
 	String customerName;
+	String customerPhone;
 	String vehicleTitle;
 	String vehicleImageUrl;
 	long amount;

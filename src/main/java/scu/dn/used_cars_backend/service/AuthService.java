@@ -51,6 +51,9 @@ import java.util.List;
 import java.util.Optional;
 
 import scu.dn.used_cars_backend.common.error.ApiErrorResponse;
+import scu.dn.used_cars_backend.config.SmtpDiagnostics;
+
+import org.springframework.core.env.Environment;
 
 @Service
 @RequiredArgsConstructor
@@ -71,6 +74,7 @@ public class AuthService {
 	private final ObjectProvider<JavaMailSender> javaMailSenderProvider;
 	private final PaymentGatewayConfigService paymentGatewayConfigService;
 	private final OtpService otpService;
+	private final Environment environment;
 
 	@Value("${app.mail.from:}")
 	private String mailFromProp;
@@ -115,6 +119,9 @@ public class AuthService {
 				.gender(user.getGender())
 				.role(roleName)
 				.passwordChangeRequired(Boolean.TRUE.equals(user.getPasswordChangeRequired()))
+				.hasPassword(hasPasswordSet(user))
+				.googleLinked(isGoogleLinked(user))
+				.profileCompletionRequired(Boolean.TRUE.equals(user.getProfileCompletionRequired()))
 				.build();
 
 		if (roleName.equals("BranchManager") || roleName.equals("SalesStaff")) {
@@ -250,6 +257,7 @@ public class AuthService {
 			if ((user.getAvatarUrl() == null || user.getAvatarUrl().isBlank()) && picture != null) {
 				user.setAvatarUrl(picture);
 			}
+			ProfileCompletionSupport.refreshProfileCompletionFlag(user);
 			userRepository.save(user);
 		} else {
 			// B6: User chưa tồn tại → tạo mới với role Customer
@@ -266,6 +274,7 @@ public class AuthService {
 			user.setStatus("active");
 			user.setDeleted(false);
 			user.setPasswordChangeRequired(false);
+			user.setProfileCompletionRequired(true);
 
 			UserRole link = new UserRole();
 			link.setUser(user);
@@ -370,6 +379,7 @@ public class AuthService {
 	/**
 	 * Yêu cầu đặt lại mật khẩu qua email.
 	 * Luôn trả về bình thường bất kể email có tồn tại hay không (tránh lộ thông tin).
+	 * Hỗ trợ tài khoản Google-only (passwordHash null): cùng flow để đặt mật khẩu lần đầu.
 	 */
 	@Transactional
 	public void requestPasswordReset(String email) {
@@ -406,6 +416,7 @@ public class AuthService {
 	/**
 	 * Đặt lại mật khẩu bằng token nhận từ email.
 	 * Không trả JWT — user phải đăng nhập lại thủ công.
+	 * Với user Google: chỉ ghi passwordHash; giữ authProvider=google và providerId (dual login).
 	 */
 	@Transactional
 	public void resetPassword(String token, String newPassword) {
@@ -458,6 +469,12 @@ public class AuthService {
 			log.warn("MAIL_FROM / spring.mail.username trống, không gửi được email đặt lại mật khẩu.");
 			return;
 		}
+		if (springMailUsername != null && !from.trim().equalsIgnoreCase(springMailUsername.trim())) {
+			log.warn(
+					"app.mail.from ({}) khác spring.mail.username ({}) — Gmail SMTP nên dùng cùng một địa chỉ.",
+					SmtpDiagnostics.maskEmail(from),
+					SmtpDiagnostics.maskEmail(springMailUsername));
+		}
 		if (springMailPassword == null || springMailPassword.isBlank()) {
 			log.warn(
 					"spring.mail.password đang trống — SMTP không xác thực được. Kiểm tra: (1) application.yml có App Password; (2) biến môi trường SPRING_MAIL_PASSWORD hoặc MAIL_PASSWORD không đè rỗng lên file cấu hình. userId={}",
@@ -479,17 +496,35 @@ public class AuthService {
 			String frontendBaseUrl = paymentGatewayConfigService.frontendBaseUrl();
 			String resetLink = frontendBaseUrl + "/reset-password?token=" + rawToken;
 
-			String subject = "Đặt lại mật khẩu — BanXeOTô Đà Nẵng";
+			// Google-only: chưa có passwordHash → copy "đặt mật khẩu lần đầu"
+			boolean firstPassword = user.getPasswordHash() == null || user.getPasswordHash().isBlank();
+			String subject;
+			String heading;
+			String intro;
+			String buttonLabel;
+			String footerNote;
+			if (firstPassword) {
+				subject = "Đặt mật khẩu đăng nhập — BanXeOTô Đà Nẵng";
+				heading = "Đặt mật khẩu đăng nhập";
+				intro = "Bạn có thể đặt mật khẩu để đăng nhập bằng email (ngoài đăng nhập Google).";
+				buttonLabel = "Đặt mật khẩu";
+				footerNote = "Nếu bạn không yêu cầu email này, vui lòng bỏ qua.";
+			} else {
+				subject = "Đặt lại mật khẩu — BanXeOTô Đà Nẵng";
+				heading = "Đặt lại mật khẩu";
+				intro = "Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn.";
+				buttonLabel = "Đặt lại mật khẩu";
+				footerNote = "Nếu bạn không yêu cầu đặt lại mật khẩu, vui lòng bỏ qua email này.";
+			}
 			String body = "<div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">"
-					+ "<h2 style=\"color: #E8612A;\">Đặt lại mật khẩu</h2>"
+					+ "<h2 style=\"color: #E8612A;\">" + heading + "</h2>"
 					+ "<p>Xin chào <b>" + user.getName() + "</b>,</p>"
-					+ "<p>Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn.</p>"
+					+ "<p>" + intro + "</p>"
 					+ "<p>Nhấn vào link bên dưới để đặt mật khẩu mới (link có hiệu lực 15 phút):</p>"
 					+ "<p><a href=\"" + resetLink + "\" style=\"display: inline-block; padding: 12px 24px; "
 					+ "background-color: #E8612A; color: #ffffff; text-decoration: none; border-radius: 6px;\">"
-					+ "Đặt lại mật khẩu</a></p>"
-					+ "<p style=\"color: #888; font-size: 13px;\">Nếu bạn không yêu cầu đặt lại mật khẩu, "
-					+ "vui lòng bỏ qua email này.</p>"
+					+ buttonLabel + "</a></p>"
+					+ "<p style=\"color: #888; font-size: 13px;\">" + footerNote + "</p>"
 					+ "</div>";
 
 			MimeMessage mm = sender.createMimeMessage();
@@ -499,23 +534,30 @@ public class AuthService {
 			helper.setSubject(subject);
 			helper.setText(body, true);
 			sender.send(mm);
+			if (firstPassword) {
+				log.info("Đã gửi email đặt mật khẩu lần đầu (Google-linked) cho userId={}", user.getId());
+			}
 		} catch (Exception e) {
-			logSmtpSendFailure(user.getId(), e);
+			logSmtpSendFailure(user.getId(), from, e);
 		}
 	}
 
-	// Gmail 535-5.7.8 BadCredentials: sai tài khoản SMTP hoặc chưa dùng App Password — không sửa được bằng code
-	private void logSmtpSendFailure(long userId, Exception e) {
+	// Gmail 535-5.7.8 BadCredentials: sai/revoked App Password — sửa credential (env), không phải lỗi Google OAuth login
+	private void logSmtpSendFailure(long userId, String fromAddress, Exception e) {
 		if (isSmtpAuthenticationFailure(e)) {
 			int pwdLen = (springMailPassword != null) ? springMailPassword.length() : 0;
 			log.warn(
 					"SMTP từ chối xác thực (Gmail 535 BadCredentials). "
-							+ "password.length={} (Gmail App Password phải đúng 16). "
-							+ "Cần: đúng email + App Password 16 ký tự "
-							+ "(bật 2FA → https://myaccount.google.com/apppasswords ), không dùng mật khẩu đăng nhập web. "
-							+ "Kiểm tra: (1) App Password đúng 16 ký tự chưa; "
-							+ "(2) SPRING_MAIL_PASSWORD/MAIL_PASSWORD env var không đè sai. userId={}",
-					pwdLen, userId, e);
+							+ "smtpUser={} mailFrom={} password.length={} nguồn={}. "
+							+ "Đăng nhập Google (OAuth) và gửi mail (SMTP) là hai kênh khác nhau. "
+							+ "Cần App Password 16 ký tự của đúng tài khoản SMTP (bật 2FA → https://myaccount.google.com/apppasswords ), "
+							+ "không dùng mật khẩu web. Có thể đặt SPRING_MAIL_PASSWORD khi chạy backend mà không sửa application.yml. userId={}",
+					SmtpDiagnostics.maskEmail(springMailUsername),
+					SmtpDiagnostics.maskEmail(fromAddress),
+					pwdLen,
+					SmtpDiagnostics.passwordSourceHint(environment),
+					userId,
+					e);
 			return;
 		}
 		log.warn("Gửi email đặt lại mật khẩu thất bại cho user {}: {}", userId, e.getMessage(), e);
@@ -532,6 +574,14 @@ public class AuthService {
 			}
 		}
 		return false;
+	}
+
+	private static boolean hasPasswordSet(User user) {
+		return user.getPasswordHash() != null && !user.getPasswordHash().isBlank();
+	}
+
+	private static boolean isGoogleLinked(User user) {
+		return user.getProviderId() != null && !user.getProviderId().isBlank();
 	}
 
 	// Hash chuỗi bằng SHA-256, trả về hex string

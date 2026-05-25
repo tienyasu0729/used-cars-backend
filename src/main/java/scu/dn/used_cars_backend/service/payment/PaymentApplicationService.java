@@ -764,9 +764,9 @@ public class PaymentApplicationService {
 
 	// Thực hiện khi thanh toán online thành công:
 	// B1: Load xe, kiểm tra còn available
-	// B2: Chuyển deposit AwaitingPayment → Pending
-	// B3: Tạo FinancialTransaction
-	// B4: Set xe RESERVED
+	// B2: Tạo FinancialTransaction
+	// B3: Set xe RESERVED
+	// B4: Chuyển deposit AwaitingPayment → Confirmed
 	private void completeDepositAfterOnlinePayment(Deposit d, String vnpGatewayTransactionNo) {
 		// B1: Kiem tra xe van con Available
 		Vehicle v = vehicleRepository.findById(d.getVehicleId())
@@ -785,15 +785,13 @@ public class PaymentApplicationService {
 			return;
 		}
 
-		// B2: Chuyen deposit tu AwaitingPayment → Pending
-		d.setStatus("Pending");
 		if (vnpGatewayTransactionNo != null && !vnpGatewayTransactionNo.isBlank()
 				&& (d.getGatewayOrderUrl() == null || d.getGatewayOrderUrl().isBlank())) {
 			d.setGatewayOrderUrl(vnpGatewayTransactionNo.trim());
+			depositRepository.save(d);
 		}
-		depositRepository.save(d);
 
-		// B3: Tao FinancialTransaction (luc nay moi tao vi payment confirmed)
+		// B2: Tao FinancialTransaction (luc nay moi tao vi payment confirmed)
 		boolean txExists = financialTransactionRepository
 				.findByReferenceTypeAndReferenceId("Deposit", d.getId()).isPresent();
 		if (!txExists) {
@@ -815,10 +813,13 @@ public class PaymentApplicationService {
 					});
 		}
 
-		// B4: Set xe RESERVED (chi xay ra khi payment thanh cong)
+		// B3: Set xe RESERVED (chi xay ra khi payment thanh cong)
 		v.setStatus(VehicleStatus.RESERVED.getDbValue());
 		vehicleRepository.save(v);
 		vehicleService.evictPublicVehicleCaches(v.getId());
+
+		// B4: Confirmed ngay — khong can showroom duyet
+		depositService.finalizeDepositAsConfirmed(d, true);
 
 		// B5: Gui email thong bao dat coc thanh cong (async, khong anh huong luong chinh)
 		userRepository.findById(d.getCustomerId()).ifPresent(customer ->

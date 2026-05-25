@@ -79,4 +79,6 @@ public interface InstallmentApplicationRepository extends JpaRepository<Installm
 			InstallmentApplication.Status status);
 
 	boolean existsByCustomer_IdAndVehicle_Id(Long customerId, Long vehicleId);
+
+	boolean existsByOtpVerificationId(Long otpVerificationId);
 }

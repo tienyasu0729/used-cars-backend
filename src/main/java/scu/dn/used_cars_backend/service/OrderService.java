@@ -22,6 +22,7 @@ import scu.dn.used_cars_backend.entity.OrderPayment;
 import scu.dn.used_cars_backend.entity.SalesOrder;
 import scu.dn.used_cars_backend.entity.User;
 import scu.dn.used_cars_backend.entity.Vehicle;
+import scu.dn.used_cars_backend.entity.VehicleImage;
 import scu.dn.used_cars_backend.entity.VehicleStatus;
 import scu.dn.used_cars_backend.repository.DepositRepository;
 import scu.dn.used_cars_backend.repository.FinancialTransactionRepository;
@@ -35,9 +36,13 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class OrderService {
@@ -181,7 +186,10 @@ public class OrderService {
 				yield salesOrderRepository.pageForBranch(bid, st, se != null ? se : "", pr);
 			}
 		};
-		return pg.getContent().stream().map(this::toRow).toList();
+		List<SalesOrder> orders = pg.getContent();
+		Map<Long, String> vehicleImageById = loadVehicleImageUrls(
+				orders.stream().map(o -> o.getVehicle().getId()).collect(Collectors.toSet()));
+		return orders.stream().map(o -> toRow(o, vehicleImageById.get(o.getVehicle().getId()))).toList();
 	}
 
 	@Transactional(readOnly = true)
@@ -213,7 +221,8 @@ public class OrderService {
 		assertCanViewOrder(actorUserId, jwtRole, o);
 		List<OrderPayment> pays = orderPaymentRepository.findByOrderIdWithOrderAndBranch(orderId);
 		List<OrderPaymentRowDto> payRows = pays.stream().map(this::toPayRow).toList();
-		return toDetail(o, payRows);
+		String vehicleImageUrl = loadVehicleImageUrls(Set.of(o.getVehicle().getId())).get(o.getVehicle().getId());
+		return toDetail(o, payRows, vehicleImageUrl);
 	}
 
 	@Transactional
@@ -440,7 +449,7 @@ public class OrderService {
 		assertStaffOrAdminOnOrder(actorUserId, jwtRole, o);
 	}
 
-	private OrderRowDto toRow(SalesOrder o) {
+	private OrderRowDto toRow(SalesOrder o, String vehicleImageUrl) {
 		User cust = userRepository.findByIdAndDeletedFalse(o.getCustomerId()).orElse(null);
 		User st = o.getStaffId() != null ? userRepository.findByIdAndDeletedFalse(o.getStaffId()).orElse(null) : null;
 		return OrderRowDto.builder()
@@ -454,6 +463,7 @@ public class OrderService {
 				.branchName(o.getBranch().getName())
 				.vehicleId(o.getVehicle().getId())
 				.vehicleTitle(o.getVehicle().getTitle())
+				.vehicleImageUrl(vehicleImageUrl)
 				.totalPrice(o.getTotalPrice().toPlainString())
 				.depositAmount(o.getDepositAmount().toPlainString())
 				.remainingAmount(o.getRemainingAmount().toPlainString())
@@ -462,7 +472,7 @@ public class OrderService {
 				.build();
 	}
 
-	private OrderDetailDto toDetail(SalesOrder o, List<OrderPaymentRowDto> payments) {
+	private OrderDetailDto toDetail(SalesOrder o, List<OrderPaymentRowDto> payments, String vehicleImageUrl) {
 		User cust = userRepository.findByIdAndDeletedFalse(o.getCustomerId()).orElse(null);
 		User st = o.getStaffId() != null ? userRepository.findByIdAndDeletedFalse(o.getStaffId()).orElse(null) : null;
 		return OrderDetailDto.builder()
@@ -478,6 +488,7 @@ public class OrderService {
 				.branchName(o.getBranch().getName())
 				.vehicleId(o.getVehicle().getId())
 				.vehicleTitle(o.getVehicle().getTitle())
+				.vehicleImageUrl(vehicleImageUrl)
 				.totalPrice(o.getTotalPrice().toPlainString())
 				.depositAmount(o.getDepositAmount().toPlainString())
 				.remainingAmount(o.getRemainingAmount().toPlainString())
@@ -488,6 +499,33 @@ public class OrderService {
 				.updatedAt(o.getUpdatedAt().toString())
 				.payments(payments)
 				.build();
+	}
+
+	private Map<Long, String> loadVehicleImageUrls(Set<Long> vehicleIds) {
+		if (vehicleIds == null || vehicleIds.isEmpty()) {
+			return Map.of();
+		}
+		Set<Long> ids = new HashSet<>(vehicleIds);
+		Map<Long, String> out = new HashMap<>();
+		for (Vehicle v : vehicleRepository.findAllByIdInWithImages(ids)) {
+			out.put(v.getId(), pickPrimaryVehicleImageUrl(v));
+		}
+		return out;
+	}
+
+	private static String pickPrimaryVehicleImageUrl(Vehicle v) {
+		List<VehicleImage> imgs = v.getImages();
+		if (imgs == null || imgs.isEmpty()) {
+			return null;
+		}
+		return imgs.stream()
+				.filter(VehicleImage::isPrimaryImage)
+				.map(VehicleImage::getImageUrl)
+				.findFirst()
+				.orElseGet(() -> imgs.stream()
+						.min(Comparator.comparingInt(VehicleImage::getSortOrder))
+						.map(VehicleImage::getImageUrl)
+						.orElse(null));
 	}
 
 	private OrderPaymentRowDto toPayRow(OrderPayment p) {

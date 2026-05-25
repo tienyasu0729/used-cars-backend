@@ -29,9 +29,10 @@ spring:
       timeout: ${REDIS_TIMEOUT:2000ms}
 
   flyway:
-    enabled: ${FLYWAY_ENABLED:false}
+    enabled: ${FLYWAY_ENABLED:true}
     locations: classpath:db/migration
     baseline-on-migrate: true
+    baseline-version: ${FLYWAY_BASELINE_VERSION:6}
     ignore-missing-migrations: true
 
   mail:
@@ -55,7 +56,9 @@ server:
 
 logging:
   level:
-    scu.dn.used_cars_backend.service.payment: ${PAYMENT_LOG_LEVEL:DEBUG}
+    scu.dn.used_cars_backend.service.payment: ${PAYMENT_LOG_LEVEL:INFO}
+    scu.dn.used_cars_backend.sms.service.OtpService: ${OTP_LOG_LEVEL:WARN}
+    scu.dn.used_cars_backend.sms.service.SmsService: ${SMS_LOG_LEVEL:WARN}
 
 app:
   timezone: ${APP_TIMEZONE:Asia/Saigon}
@@ -138,3 +141,9 @@ app:
     base-url: ${PRICING_BASE_URL:http://host.docker.internal:8000}
     estimate-path: ${PRICING_ESTIMATE_PATH:/internal/vehicle-pricing/estimate}
     internal-token: ${PRICING_INTERNAL_TOKEN:pricing_internal_local_token}
+    connect-timeout-ms: ${PRICING_CONNECT_TIMEOUT_MS:15000}
+    read-timeout-ms: ${PRICING_READ_TIMEOUT_MS:600000}
+
+  sms:
+    enabled: ${SMS_ENABLED:true}
+    require-https: ${SMS_REQUIRE_HTTPS:true}

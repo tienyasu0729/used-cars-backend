@@ -1,7 +1,9 @@
 package scu.dn.used_cars_backend.common.exception;
 
 import jakarta.servlet.http.HttpServletRequest;
+import java.io.IOException;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.catalina.connector.ClientAbortException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -9,9 +11,11 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import scu.dn.used_cars_backend.common.error.ApiErrorResponse;
@@ -46,7 +50,7 @@ public class GlobalExceptionHandler {
 		List<ApiErrorResponse.FieldErrorDetail> details = ex.getBindingResult().getFieldErrors().stream()
 				.map(this::toDetail)
 				.collect(Collectors.toList());
-		String msg = details.isEmpty() ? "Du lieu khong hop le." : details.get(0).getMessage();
+		String msg = details.isEmpty() ? "Dữ liệu không hợp lệ." : details.get(0).getMessage();
 		ApiErrorResponse body = ApiErrorResponse.builder()
 				.timestamp(Instant.now())
 				.status(HttpStatus.BAD_REQUEST.value())
@@ -65,7 +69,7 @@ public class GlobalExceptionHandler {
 				.timestamp(Instant.now())
 				.status(HttpStatus.UNAUTHORIZED.value())
 				.errorCode(ErrorCode.UNAUTHORIZED.getCode())
-				.message("Yeu cau dang nhap.")
+				.message("Yêu cầu đăng nhập.")
 				.path(request.getRequestURI())
 				.build();
 		return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
@@ -77,7 +81,7 @@ public class GlobalExceptionHandler {
 				.timestamp(Instant.now())
 				.status(HttpStatus.UNAUTHORIZED.value())
 				.errorCode(ErrorCode.INVALID_CREDENTIALS.getCode())
-				.message("Sai email hoac mat khau.")
+				.message("Sai email hoặc mật khẩu.")
 				.path(request.getRequestURI())
 				.build();
 		return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
@@ -92,7 +96,7 @@ public class GlobalExceptionHandler {
 					.timestamp(Instant.now())
 					.status(ErrorCode.VEHICLE_SLOT_TAKEN.getHttpStatus().value())
 					.errorCode(ErrorCode.VEHICLE_SLOT_TAKEN.getCode())
-					.message("Xe nay da co lich hen trong khung gio nay. Vui long chon gio khac.")
+					.message("Xe này đã có lịch hẹn trong khung giờ này. Vui lòng chọn giờ khác.")
 					.path(request.getRequestURI())
 					.build();
 			return ResponseEntity.status(ErrorCode.VEHICLE_SLOT_TAKEN.getHttpStatus()).body(body);
@@ -101,7 +105,7 @@ public class GlobalExceptionHandler {
 				.timestamp(Instant.now())
 				.status(ErrorCode.LISTING_ID_CONFLICT.getHttpStatus().value())
 				.errorCode(ErrorCode.LISTING_ID_CONFLICT.getCode())
-				.message("Du lieu trung khoa hoac vi pham rang buoc.")
+				.message("Dữ liệu trùng khóa hoặc vi phạm ràng buộc.")
 				.path(request.getRequestURI())
 				.build();
 		return ResponseEntity.status(ErrorCode.LISTING_ID_CONFLICT.getHttpStatus()).body(body);
@@ -113,10 +117,25 @@ public class GlobalExceptionHandler {
 				.timestamp(Instant.now())
 				.status(HttpStatus.NOT_FOUND.value())
 				.errorCode(ErrorCode.RESOURCE_NOT_FOUND.getCode())
-				.message("Khong tim thay tai nguyen.")
+				.message("Không tìm thấy tài nguyên.")
 				.path(request.getRequestURI())
 				.build();
 		return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+	}
+
+	@ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+	public ResponseEntity<ApiErrorResponse> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex,
+			HttpServletRequest request) {
+		log.warn("[MethodNotSupported] {} {} -> supported: {}",
+				request.getMethod(), request.getRequestURI(), ex.getSupportedHttpMethods());
+		ApiErrorResponse body = ApiErrorResponse.builder()
+				.timestamp(Instant.now())
+				.status(HttpStatus.METHOD_NOT_ALLOWED.value())
+				.errorCode(ErrorCode.RESOURCE_NOT_FOUND.getCode())
+				.message("Phương thức HTTP không được hỗ trợ cho API này.")
+				.path(request.getRequestURI())
+				.build();
+		return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(body);
 	}
 
 	@ExceptionHandler(NoHandlerFoundException.class)
@@ -125,7 +144,7 @@ public class GlobalExceptionHandler {
 				.timestamp(Instant.now())
 				.status(HttpStatus.NOT_FOUND.value())
 				.errorCode(ErrorCode.RESOURCE_NOT_FOUND.getCode())
-				.message("Khong tim thay API.")
+				.message("Không tìm thấy API.")
 				.path(request.getRequestURI())
 				.build();
 		return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
@@ -137,23 +156,55 @@ public class GlobalExceptionHandler {
 				.timestamp(Instant.now())
 				.status(HttpStatus.FORBIDDEN.value())
 				.errorCode(ErrorCode.FORBIDDEN.getCode())
-				.message("Khong co quyen truy cap.")
+				.message("Không có quyền truy cập.")
 				.path(request.getRequestURI())
 				.build();
 		return ResponseEntity.status(HttpStatus.FORBIDDEN).body(body);
 	}
 
+	@ExceptionHandler({ AsyncRequestNotUsableException.class, ClientAbortException.class })
+	public ResponseEntity<Void> handleClientAbort(Exception ex, HttpServletRequest request) {
+		if (isBenignClientDisconnect(ex)) {
+			log.debug("Client disconnected before response completed: {} {}",
+					request.getMethod(), request.getRequestURI());
+			return ResponseEntity.noContent().build();
+		}
+		log.warn("Request stream error: {} {} — {}",
+				request.getMethod(), request.getRequestURI(), ex.getMessage());
+		return ResponseEntity.noContent().build();
+	}
+
 	@ExceptionHandler(Exception.class)
-	public ResponseEntity<ApiErrorResponse> handleAny(Exception ex, HttpServletRequest request) {
+	public ResponseEntity<?> handleAny(Exception ex, HttpServletRequest request) {
+		if (isBenignClientDisconnect(ex)) {
+			log.debug("Client disconnected: {} {}", request.getMethod(), request.getRequestURI());
+			return ResponseEntity.noContent().build();
+		}
 		log.error("Unhandled error", ex);
 		ApiErrorResponse body = ApiErrorResponse.builder()
 				.timestamp(Instant.now())
 				.status(HttpStatus.INTERNAL_SERVER_ERROR.value())
 				.errorCode(ErrorCode.INTERNAL_SERVER_ERROR.getCode())
-				.message("Loi he thong.")
+				.message("Lỗi hệ thống.")
 				.path(request.getRequestURI())
 				.build();
 		return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(body);
+	}
+
+	private static boolean isBenignClientDisconnect(Throwable ex) {
+		for (Throwable t = ex; t != null; t = t.getCause()) {
+			if (t instanceof ClientAbortException || t instanceof AsyncRequestNotUsableException) {
+				return true;
+			}
+			if (t instanceof IOException) {
+				String msg = t.getMessage();
+				if (msg != null && (msg.contains("aborted") || msg.contains("Broken pipe")
+						|| msg.contains("Connection reset"))) {
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	private ApiErrorResponse.FieldErrorDetail toDetail(FieldError fe) {
@@ -162,117 +213,117 @@ public class GlobalExceptionHandler {
 
 	private String defaultMessage(ErrorCode ec) {
 		return switch (ec) {
-			case UNAUTHORIZED -> "Yeu cau dang nhap.";
-			case RATE_LIMITED -> "Qua nhieu yeu cau, vui long thu lai sau.";
-			case FORBIDDEN -> "Khong co quyen truy cap.";
-			case INVALID_CREDENTIALS -> "Sai email hoac mat khau.";
-			case INVALID_CURRENT_PASSWORD -> "Mat khau hien tai khong dung.";
-			case PASSWORD_TOO_SHORT -> "Mat khau tu 8 den 100 ky tu.";
-			case USER_NOT_FOUND -> "Khong tim thay nguoi dung.";
-			case ACCOUNT_SUSPENDED -> "Tai khoan bi khoa.";
-			case PASSWORD_CHANGE_REQUIRED -> "Vui long dat mat khau moi truoc khi tiep tuc.";
-			case VALIDATION_FAILED -> "Du lieu khong hop le.";
-			case INTERNAL_SERVER_ERROR -> "Loi he thong.";
-			case VEHICLE_NOT_FOUND -> "Khong tim thay xe.";
-			case BRAND_NOT_FOUND -> "Khong tim thay hang xe.";
-			case MODEL_NOT_FOUND -> "Khong tim thay dong xe.";
-			case BRANCH_NOT_FOUND -> "Khong tim thay chi nhanh.";
-			case INVALID_PRICE -> "Gia khong hop le.";
-			case INVALID_YEAR -> "Nam san xuat khong hop le.";
-			case LISTING_ID_CONFLICT -> "Ma tin trung hoac xung dot du lieu.";
-			case VEHICLE_ALREADY_SAVED -> "Xe da co trong danh sach da luu.";
-			case VEHICLE_NOT_SAVED -> "Xe chua duoc luu.";
-			case BOOKING_NOT_FOUND -> "Khong tim thay lich hen.";
-			case SLOT_NOT_FOUND -> "Khong tim thay khung gio.";
-			case SLOT_FULLY_BOOKED -> "Khung gio da day.";
-			case VEHICLE_SLOT_TAKEN -> "Xe da co lich trong khung gio nay.";
-			case VEHICLE_NOT_AVAILABLE -> "Xe khong kha dung de dat lich.";
-			case BOOKING_CANNOT_CANCEL -> "Lich hen khong the huy.";
-			case INVALID_STATUS_TRANSITION -> "Chuyen trang thai khong hop le.";
-			case BOOKING_ACCESS_DENIED -> "Khong co quyen truy cap lich hen nay.";
-			case TRANSFER_NOT_FOUND -> "Khong tim thay yeu cau dieu chuyen.";
-			case VEHICLE_NOT_IN_BRANCH -> "Xe khong thuoc chi nhanh nay.";
-			case TRANSFER_ALREADY_EXISTS -> "Da co yeu cau dieu chuyen cho xe nay.";
-			case INVALID_TRANSFER_STATUS -> "Trang thai dieu chuyen khong hop le.";
-			case TRANSFER_ACCESS_DENIED -> "Khong co quyen truy cap yeu cau dieu chuyen nay.";
-			case USED_CAR_PURCHASE_REQUEST_NOT_FOUND -> "Khong tim thay ho so mua xe cu.";
-			case USED_CAR_PURCHASE_REQUEST_ACCESS_DENIED -> "Khong co quyen thao tac ho so mua xe cu nay.";
-			case USED_CAR_PURCHASE_REQUEST_INVALID_STATUS -> "Trang thai ho so mua xe cu khong hop le.";
-			case STAFF_NOT_FOUND -> "Khong tim thay nhan vien.";
-			case STAFF_EMAIL_EXISTS -> "Email da duoc su dung.";
-			case STAFF_PHONE_EXISTS -> "So dien thoai da duoc su dung.";
-			case STAFF_NOT_IN_BRANCH -> "Nhan vien khong thuoc chi nhanh cua ban.";
-			case STAFF_PEER_EDIT_FORBIDDEN -> "Khong the chinh sua nhan su cung vai tro voi ban.";
-			case MEDIA_UPLOAD_NOT_CONFIGURED -> "May chu chua bat upload anh Cloudinary.";
-			case CLOUDINARY_URL_INVALID -> "URL Cloudinary khong hop le.";
-			case IMAGE_NOT_FOUND -> "Khong tim thay anh xe.";
-			case INVALID_VEHICLE_STATUS -> "Trang thai xe khong hop le.";
-			case INVALID_VEHICLE_LIST -> "Danh sach xe khong hop le.";
-			case MAINTENANCE_NOT_FOUND -> "Khong tim thay ban ghi bao duong.";
-			case USER_EMAIL_EXISTS -> "Email da duoc su dung.";
-			case ROLE_NOT_FOUND -> "Khong tim thay vai tro.";
-			case ROLE_IN_USE -> "Vai tro dang duoc su dung.";
-			case RESOURCE_NOT_FOUND -> "Khong tim thay tai nguyen.";
-			case ORDER_NOT_FOUND -> "Khong tim thay don hang.";
-			case DEPOSIT_NOT_FOUND -> "Khong tim thay khoan dat coc.";
-			case VEHICLE_ALREADY_DEPOSITED -> "Xe da co dat coc dang hieu luc.";
-			case DEPOSIT_CANNOT_CANCEL -> "Khong the huy khoan dat coc nay.";
-			case DEPOSIT_CANNOT_CONFIRM -> "Khong the xac nhan khoan dat coc nay.";
-			case DEPOSIT_ACCESS_DENIED -> "Khong co quyen truy cap khoan dat coc nay.";
-			case ORDER_INVALID_STATUS_TRANSITION -> "Chuyen trang thai don hang khong hop le.";
-			case ORDER_CANNOT_CANCEL -> "Khong the huy don hang nay.";
-			case ORDER_ACCESS_DENIED -> "Khong co quyen truy cap don hang nay.";
-			case VEHICLE_HAS_ACTIVE_ORDER -> "Xe da co don hang dang xu ly.";
-			case DEPOSIT_OWNER_MISMATCH -> "Xe dang duoc khach khac dat coc.";
-			case DEPOSIT_REQUIRED -> "Xe da co phieu coc can di kem khi tao don.";
-			case DEPOSIT_ALREADY_CONVERTED -> "Phieu coc da duoc dung cho don khac.";
-			case INVALID_VEHICLE_STATE_TRANSITION -> "Chuyen trang thai xe khong hop le.";
-			case PAYMENT_EXCEEDS_REMAINING -> "So tien thanh toan vuot so con lai.";
-			case PAYMENT_FORBIDDEN -> "Khong co quyen thanh toan don nay.";
-			case PAYMENT_AMOUNT_MISMATCH -> "So tien thanh toan khong khop.";
-			case NOTIFICATION_NOT_FOUND -> "Khong tim thay thong bao.";
-			case ANNOUNCEMENT_NOT_FOUND -> "Khong tim thay thong bao he thong.";
-			case MAIL_NOT_CONFIGURED -> "Chua cau hinh gui email.";
-			case INVALID_RESET_TOKEN -> "Token dat lai mat khau khong hop le hoac da het han.";
-			case GOOGLE_AUTH_FAILED -> "Xac thuc Google khong thanh cong.";
-			case ARTICLE_NOT_FOUND -> "Khong tim thay bai viet.";
-			case ARTICLE_CATEGORY_NOT_FOUND -> "Khong tim thay danh muc bai viet.";
-			case ARTICLE_SLUG_CONFLICT -> "Slug bai viet da ton tai.";
-			case CATEGORY_SLUG_CONFLICT -> "Slug danh muc da ton tai.";
-			case CATEGORY_IN_USE -> "Danh muc dang duoc su dung.";
-			case REVIEW_NOT_FOUND -> "Khong tim thay danh gia.";
-			case REVIEW_ALREADY_EXISTS -> "Ban da danh gia xe nay roi.";
-			case REVIEW_NOT_ELIGIBLE -> "Chi danh gia sau khi hoan tat lai thu.";
-			case REVIEW_ACCESS_DENIED -> "Khong co quyen thao tac danh gia nay.";
-			case CONTRACT_NOT_FOUND -> "Khong tim thay hop dong.";
-			case CONTRACT_ALREADY_SIGNED -> "Hop dong da duoc ky.";
-			case CONTRACT_EXPIRED -> "Hop dong da het han.";
-			case DOCUMENT_SESSION_NOT_FOUND -> "Phien tai tai lieu khong ton tai.";
-			case DOCUMENT_SESSION_EXPIRED -> "Phien tai tai lieu da het han.";
-			case DOCUMENT_SESSION_INVALID_TOKEN -> "Ma phien tai tai lieu khong hop le.";
-			case CONSULTATION_NOT_FOUND -> "Khong tim thay phieu tu van.";
-			case CONSULTATION_ACCESS_DENIED -> "Khong co quyen thao tac phieu tu van nay.";
-			case CHAT_NOT_FOUND -> "Khong tim thay hoi thoai.";
-			case CHAT_ACCESS_DENIED -> "Khong co quyen truy cap cuoc tro chuyen nay.";
-			case CUSTOMER_IDENTITY_AMBIGUOUS -> "Tim thay nhieu khach hang khop email hoac so dien thoai.";
-			case BANK_CONNECTION_ERROR -> "Khong the ket noi toi dich vu tham dinh tin dung.";
-			case BANK_API_ERROR -> "Loi tu dich vu tham dinh tin dung.";
-			case OTP_GENERATION_FAILED -> "Loi tao ma OTP.";
-			case OTP_ALREADY_EXISTS -> "Ma OTP chua het han da ton tai.";
-			case OTP_INVALID_FORMAT -> "Ma OTP khong dung dinh dang.";
-			case OTP_INVALID_CODE -> "Ma OTP khong khop.";
-			case OTP_EXPIRED -> "Ma OTP da het han.";
-			case OTP_EXHAUSTED -> "Da vuot qua so lan thu cho phep.";
-			case OTP_ALREADY_VERIFIED -> "Ma OTP da duoc su dung.";
-			case OTP_RATE_LIMITED -> "Vuot gioi han gui OTP.";
-			case OTP_REFERENCE_INVALID -> "Ho so khong hop le.";
-			case SMS_VALIDATION_FAILED -> "Du lieu SMS khong hop le.";
-			case SMS_DUPLICATE -> "Tin nhan trung lap.";
-			case DEVICE_KEY_MISSING -> "Thieu X-Device-Key.";
-			case DEVICE_KEY_INVALID -> "Device Key khong hop le.";
-			case IP_BLOCKED -> "IP bi chan do nhieu lan sai.";
-			case OTP_RESEND_TOO_FAST -> "Gui lai OTP qua nhanh, vui long cho.";
-			case OTP_RESEND_LIMIT_EXCEEDED -> "Da vuot gioi han gui lai OTP.";
+			case UNAUTHORIZED -> "Yêu cầu đăng nhập.";
+			case RATE_LIMITED -> "Quá nhiều yêu cầu, vui lòng thử lại sau.";
+			case FORBIDDEN -> "Không có quyền truy cập.";
+			case INVALID_CREDENTIALS -> "Sai email hoặc mật khẩu.";
+			case INVALID_CURRENT_PASSWORD -> "Mật khẩu hiện tại không đúng.";
+			case PASSWORD_TOO_SHORT -> "Mật khẩu từ 8 đến 100 ký tự.";
+			case USER_NOT_FOUND -> "Không tìm thấy người dùng.";
+			case ACCOUNT_SUSPENDED -> "Tài khoản bị khóa.";
+			case PASSWORD_CHANGE_REQUIRED -> "Vui lòng đặt mật khẩu mới trước khi tiếp tục.";
+			case PROFILE_COMPLETION_REQUIRED -> "Vui lòng cập nhật họ tên và số điện thoại trong hồ sơ trước khi tiếp tục.";
+			case VALIDATION_FAILED -> "Dữ liệu không hợp lệ.";
+			case INTERNAL_SERVER_ERROR -> "Lỗi hệ thống.";
+			case VEHICLE_NOT_FOUND -> "Không tìm thấy xe.";
+			case BRAND_NOT_FOUND -> "Không tìm thấy hãng xe.";
+			case MODEL_NOT_FOUND -> "Không tìm thấy dòng xe.";
+			case BRANCH_NOT_FOUND -> "Không tìm thấy chi nhánh.";
+			case INVALID_PRICE -> "Giá không hợp lệ.";
+			case INVALID_YEAR -> "Năm sản xuất không hợp lệ.";
+			case LISTING_ID_CONFLICT -> "Mã tin trùng hoặc xung đột dữ liệu.";
+			case VEHICLE_ALREADY_SAVED -> "Xe đã có trong danh sách đã lưu.";
+			case VEHICLE_NOT_SAVED -> "Xe chưa được lưu.";
+			case BOOKING_NOT_FOUND -> "Không tìm thấy lịch hẹn.";
+			case SLOT_NOT_FOUND -> "Không tìm thấy khung giờ.";
+			case SLOT_FULLY_BOOKED -> "Khung giờ đã đầy.";
+			case VEHICLE_SLOT_TAKEN -> "Xe đã có lịch trong khung giờ này.";
+			case VEHICLE_NOT_AVAILABLE -> "Xe không khả dụng để đặt lịch.";
+			case BOOKING_CANNOT_CANCEL -> "Lịch hẹn không thể hủy.";
+			case INVALID_STATUS_TRANSITION -> "Chuyển trạng thái không hợp lệ.";
+			case BOOKING_ACCESS_DENIED -> "Không có quyền truy cập lịch hẹn này.";
+			case TRANSFER_NOT_FOUND -> "Không tìm thấy yêu cầu điều chuyển.";
+			case VEHICLE_NOT_IN_BRANCH -> "Xe không thuộc chi nhánh này.";
+			case TRANSFER_ALREADY_EXISTS -> "Đã có yêu cầu điều chuyển cho xe này.";
+			case INVALID_TRANSFER_STATUS -> "Trạng thái điều chuyển không hợp lệ.";
+			case TRANSFER_ACCESS_DENIED -> "Không có quyền truy cập yêu cầu điều chuyển này.";
+			case USED_CAR_PURCHASE_REQUEST_NOT_FOUND -> "Không tìm thấy hồ sơ mua xe cũ.";
+			case USED_CAR_PURCHASE_REQUEST_ACCESS_DENIED -> "Không có quyền thao tác hồ sơ mua xe cũ này.";
+			case USED_CAR_PURCHASE_REQUEST_INVALID_STATUS -> "Trạng thái hồ sơ mua xe cũ không hợp lệ.";
+			case STAFF_NOT_FOUND -> "Không tìm thấy nhân viên.";
+			case STAFF_EMAIL_EXISTS -> "Email đã được sử dụng.";
+			case STAFF_PHONE_EXISTS -> "Số điện thoại đã được sử dụng.";
+			case STAFF_NOT_IN_BRANCH -> "Nhân viên không thuộc chi nhánh của bạn.";
+			case STAFF_PEER_EDIT_FORBIDDEN -> "Không thể chỉnh sửa nhân sự cùng vai trò với bạn.";
+			case MEDIA_UPLOAD_NOT_CONFIGURED -> "Máy chủ chưa bật upload ảnh Cloudinary.";
+			case CLOUDINARY_URL_INVALID -> "URL Cloudinary không hợp lệ.";
+			case IMAGE_NOT_FOUND -> "Không tìm thấy ảnh xe.";
+			case INVALID_VEHICLE_STATUS -> "Trạng thái xe không hợp lệ.";
+			case INVALID_VEHICLE_LIST -> "Danh sách xe không hợp lệ.";
+			case MAINTENANCE_NOT_FOUND -> "Không tìm thấy bản ghi bảo dưỡng.";
+			case USER_EMAIL_EXISTS -> "Email đã được sử dụng.";
+			case ROLE_NOT_FOUND -> "Không tìm thấy vai trò.";
+			case ROLE_IN_USE -> "Vai trò đang được sử dụng.";
+			case RESOURCE_NOT_FOUND -> "Không tìm thấy tài nguyên.";
+			case ORDER_NOT_FOUND -> "Không tìm thấy đơn hàng.";
+			case DEPOSIT_NOT_FOUND -> "Không tìm thấy khoản đặt cọc.";
+			case VEHICLE_ALREADY_DEPOSITED -> "Xe đã có đặt cọc đang hiệu lực.";
+			case DEPOSIT_CANNOT_CANCEL -> "Không thể hủy khoản đặt cọc này.";
+			case DEPOSIT_ACCESS_DENIED -> "Không có quyền truy cập khoản đặt cọc này.";
+			case ORDER_INVALID_STATUS_TRANSITION -> "Chuyển trạng thái đơn hàng không hợp lệ.";
+			case ORDER_CANNOT_CANCEL -> "Không thể hủy đơn hàng này.";
+			case ORDER_ACCESS_DENIED -> "Không có quyền truy cập đơn hàng này.";
+			case VEHICLE_HAS_ACTIVE_ORDER -> "Xe đã có đơn hàng đang xử lý.";
+			case DEPOSIT_OWNER_MISMATCH -> "Xe đang được khách khác đặt cọc.";
+			case DEPOSIT_REQUIRED -> "Xe đã có phiếu cọc cần đi kèm khi tạo đơn.";
+			case DEPOSIT_ALREADY_CONVERTED -> "Phiếu cọc đã được dùng cho đơn khác.";
+			case INVALID_VEHICLE_STATE_TRANSITION -> "Chuyển trạng thái xe không hợp lệ.";
+			case PAYMENT_EXCEEDS_REMAINING -> "Số tiền thanh toán vượt số còn lại.";
+			case PAYMENT_FORBIDDEN -> "Không có quyền thanh toán đơn này.";
+			case PAYMENT_AMOUNT_MISMATCH -> "Số tiền thanh toán không khớp.";
+			case NOTIFICATION_NOT_FOUND -> "Không tìm thấy thông báo.";
+			case ANNOUNCEMENT_NOT_FOUND -> "Không tìm thấy thông báo hệ thống.";
+			case MAIL_NOT_CONFIGURED -> "Chưa cấu hình gửi email.";
+			case INVALID_RESET_TOKEN -> "Token đặt lại mật khẩu không hợp lệ hoặc đã hết hạn.";
+			case GOOGLE_AUTH_FAILED -> "Xác thực Google không thành công.";
+			case ARTICLE_NOT_FOUND -> "Không tìm thấy bài viết.";
+			case ARTICLE_CATEGORY_NOT_FOUND -> "Không tìm thấy danh mục bài viết.";
+			case ARTICLE_SLUG_CONFLICT -> "Slug bài viết đã tồn tại.";
+			case CATEGORY_SLUG_CONFLICT -> "Slug danh mục đã tồn tại.";
+			case CATEGORY_IN_USE -> "Danh mục đang được sử dụng.";
+			case REVIEW_NOT_FOUND -> "Không tìm thấy đánh giá.";
+			case REVIEW_ALREADY_EXISTS -> "Bạn đã đánh giá xe này rồi.";
+			case REVIEW_NOT_ELIGIBLE -> "Chỉ đánh giá sau khi hoàn tất lái thử.";
+			case REVIEW_ACCESS_DENIED -> "Không có quyền thao tác đánh giá này.";
+			case CONTRACT_NOT_FOUND -> "Không tìm thấy hợp đồng.";
+			case CONTRACT_ALREADY_SIGNED -> "Hợp đồng đã được ký.";
+			case CONTRACT_EXPIRED -> "Hợp đồng đã hết hạn.";
+			case DOCUMENT_SESSION_NOT_FOUND -> "Phiên tải tài liệu không tồn tại.";
+			case DOCUMENT_SESSION_EXPIRED -> "Phiên tải tài liệu đã hết hạn.";
+			case DOCUMENT_SESSION_INVALID_TOKEN -> "Mã phiên tải tài liệu không hợp lệ.";
+			case CONSULTATION_NOT_FOUND -> "Không tìm thấy phiếu tư vấn.";
+			case CONSULTATION_ACCESS_DENIED -> "Không có quyền thao tác phiếu tư vấn này.";
+			case CHAT_NOT_FOUND -> "Không tìm thấy hội thoại.";
+			case CHAT_ACCESS_DENIED -> "Không có quyền truy cập cuộc trò chuyện này.";
+			case CUSTOMER_IDENTITY_AMBIGUOUS -> "Tìm thấy nhiều khách hàng khớp email hoặc số điện thoại.";
+			case BANK_CONNECTION_ERROR -> "Không thể kết nối tới dịch vụ thẩm định tín dụng.";
+			case BANK_API_ERROR -> "Lỗi từ dịch vụ thẩm định tín dụng.";
+			case OTP_GENERATION_FAILED -> "Lỗi tạo mã OTP.";
+			case OTP_ALREADY_EXISTS -> "Mã OTP chưa hết hạn đã tồn tại.";
+			case OTP_INVALID_FORMAT -> "Mã OTP không đúng định dạng.";
+			case OTP_INVALID_CODE -> "Mã OTP không khớp.";
+			case OTP_EXPIRED -> "Mã OTP đã hết hạn.";
+			case OTP_EXHAUSTED -> "Đã vượt quá số lần thử cho phép.";
+			case OTP_ALREADY_VERIFIED -> "Mã OTP đã được sử dụng.";
+			case OTP_RATE_LIMITED -> "Vượt giới hạn gửi OTP.";
+			case OTP_REFERENCE_INVALID -> "Hồ sơ không hợp lệ.";
+			case SMS_VALIDATION_FAILED -> "Dữ liệu SMS không hợp lệ.";
+			case SMS_DUPLICATE -> "Tin nhắn trùng lặp.";
+			case DEVICE_KEY_MISSING -> "Thiếu X-Device-Key.";
+			case DEVICE_KEY_INVALID -> "Device Key không hợp lệ.";
+			case IP_BLOCKED -> "IP bị chặn do nhiều lần sai.";
+			case OTP_RESEND_TOO_FAST -> "Gửi lại OTP quá nhanh, vui lòng chờ.";
+			case OTP_RESEND_LIMIT_EXCEEDED -> "Đã vượt giới hạn gửi lại OTP.";
 		};
 	}
 }

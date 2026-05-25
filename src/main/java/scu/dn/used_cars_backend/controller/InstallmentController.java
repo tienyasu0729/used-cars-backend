@@ -21,12 +21,14 @@ import scu.dn.used_cars_backend.dto.installment.CreateInstallmentPreDepositReque
 import scu.dn.used_cars_backend.dto.installment.InstallmentApplicationResponse;
 import scu.dn.used_cars_backend.dto.installment.InstallmentDocumentResponse;
 import scu.dn.used_cars_backend.dto.installment.InstallmentSubmitEligibilityResponse;
+import scu.dn.used_cars_backend.dto.installment.RejectInstallmentApplicationRequest;
 import scu.dn.used_cars_backend.dto.installment.SaveInstallmentApplicationRequest;
 import scu.dn.used_cars_backend.dto.sales.CreateDepositResponse;
 import scu.dn.used_cars_backend.dto.vehicle.PageMetaDto;
 import scu.dn.used_cars_backend.security.AuthenticationDetailsUtils;
 import scu.dn.used_cars_backend.security.JwtRoleNames;
 import scu.dn.used_cars_backend.service.InstallmentService;
+import scu.dn.used_cars_backend.service.LoanContractService;
 
 import java.util.List;
 
@@ -36,6 +38,7 @@ import java.util.List;
 public class InstallmentController {
 
 	private final InstallmentService installmentService;
+	private final LoanContractService loanContractService;
 
 	@PostMapping
 	@PreAuthorize("isAuthenticated()")
@@ -177,13 +180,35 @@ public class InstallmentController {
 		return ResponseEntity.ok(ApiResponse.success(null));
 	}
 
-	@PostMapping("/{id}/appraise")
+	@PostMapping("/{id}/mark-bank-processing")
 	@PreAuthorize("hasAnyRole('ADMIN', 'SALESSTAFF', 'BRANCHMANAGER')")
-	public ResponseEntity<ApiResponse<Void>> appraiseApplication(
+	public ResponseEntity<ApiResponse<Void>> markBankProcessing(
 			@PathVariable Long id, Authentication auth) {
 		long uid = AuthenticationDetailsUtils.requireUserId(auth);
 		String userName = auth.getName();
-		installmentService.appraiseApplication(uid, userName, id);
+		installmentService.markBankProcessing(uid, userName, id);
+		return ResponseEntity.ok(ApiResponse.success(null));
+	}
+
+	@PostMapping("/{id}/approve")
+	@PreAuthorize("hasAnyRole('ADMIN', 'SALESSTAFF', 'BRANCHMANAGER')")
+	public ResponseEntity<ApiResponse<Void>> approveApplication(
+			@PathVariable Long id, Authentication auth) {
+		long uid = AuthenticationDetailsUtils.requireUserId(auth);
+		String userName = auth.getName();
+		installmentService.approveApplication(uid, userName, id);
+		return ResponseEntity.ok(ApiResponse.success(null));
+	}
+
+	@PostMapping("/{id}/reject")
+	@PreAuthorize("hasAnyRole('ADMIN', 'SALESSTAFF', 'BRANCHMANAGER')")
+	public ResponseEntity<ApiResponse<Void>> rejectApplication(
+			@PathVariable Long id,
+			@Valid @RequestBody RejectInstallmentApplicationRequest request,
+			Authentication auth) {
+		long uid = AuthenticationDetailsUtils.requireUserId(auth);
+		String userName = auth.getName();
+		installmentService.rejectApplication(uid, userName, id, request.getRejectionReason());
 		return ResponseEntity.ok(ApiResponse.success(null));
 	}
 
@@ -223,11 +248,43 @@ public class InstallmentController {
 
 	// Phase 5: Hủy hồ sơ trả góp
 	@PostMapping("/{id}/cancel")
-	@PreAuthorize("hasAnyRole('ADMIN', 'SALESSTAFF', 'CUSTOMER')")
+	@PreAuthorize("hasAnyRole('ADMIN', 'SALESSTAFF', 'BRANCHMANAGER', 'CUSTOMER')")
 	public ResponseEntity<ApiResponse<Void>> cancelApplication(
 			@PathVariable Long id, Authentication auth) {
 		long uid = AuthenticationDetailsUtils.requireUserId(auth);
 		installmentService.cancelApplication(uid, id);
 		return ResponseEntity.ok(ApiResponse.success(null));
+	}
+
+	// === Contract Export Endpoints ===
+
+	@GetMapping("/{id}/export/contract-pdf")
+	@PreAuthorize("hasAnyRole('ADMIN', 'SALESSTAFF', 'BRANCHMANAGER')")
+	public ResponseEntity<byte[]> exportContractPdf(@PathVariable Long id) {
+		byte[] pdf = loanContractService.generateContractPdf(id);
+		return ResponseEntity.ok()
+				.header("Content-Type", "application/pdf")
+				.header("Content-Disposition", "attachment; filename=loan_contract_" + id + ".pdf")
+				.body(pdf);
+	}
+
+	@GetMapping("/{id}/export/identity-docs")
+	@PreAuthorize("hasAnyRole('ADMIN', 'SALESSTAFF', 'BRANCHMANAGER')")
+	public ResponseEntity<byte[]> exportIdentityDocs(@PathVariable Long id) {
+		byte[] zip = loanContractService.generateIdentityDocsZip(id);
+		return ResponseEntity.ok()
+				.header("Content-Type", "application/zip")
+				.header("Content-Disposition", "attachment; filename=identity_docs_" + id + ".zip")
+				.body(zip);
+	}
+
+	@GetMapping("/{id}/export/full-package")
+	@PreAuthorize("hasAnyRole('ADMIN', 'SALESSTAFF', 'BRANCHMANAGER')")
+	public ResponseEntity<byte[]> exportFullPackage(@PathVariable Long id) {
+		byte[] zip = loanContractService.generateFullPackageZip(id);
+		return ResponseEntity.ok()
+				.header("Content-Type", "application/zip")
+				.header("Content-Disposition", "attachment; filename=loan_package_" + id + ".zip")
+				.body(zip);
 	}
 }

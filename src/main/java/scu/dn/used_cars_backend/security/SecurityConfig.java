@@ -49,7 +49,9 @@ public class SecurityConfig {
 						.requestMatchers(HttpMethod.GET, "/api/v1/branches", "/api/v1/branches/*", "/api/v1/branches/*/team")
 								.permitAll()
 						.requestMatchers(HttpMethod.GET, "/api/v1/vehicles", "/api/v1/vehicles/*",
-								"/api/v1/vehicles/*/maintenance").permitAll()
+								"/api/v1/vehicles/*/maintenance", "/api/v1/vehicles/suggestions",
+								"/api/v1/vehicles/facets", "/api/v1/vehicles/recently-viewed",
+								"/api/v1/vehicles/compare").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/v1/vehicles/*/view").permitAll()
 						.requestMatchers(HttpMethod.GET, "/api/v1/articles", "/api/v1/articles/categories",
 								"/api/v1/articles/*").permitAll()
@@ -62,6 +64,7 @@ public class SecurityConfig {
 						.requestMatchers(HttpMethod.GET, "/api/v1/payment/vnpay/ipn").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/v1/payment/vnpay/ipn").permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/v1/payment/zalopay/callback").permitAll()
+						.requestMatchers(HttpMethod.GET, "/api/loan-configs/public").permitAll()
 						.requestMatchers("/api/v1/webhook/**").permitAll()
 						.requestMatchers("/error").permitAll()
 						.requestMatchers("/ws/**").permitAll()

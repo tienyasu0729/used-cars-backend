@@ -59,6 +59,18 @@ public class BookingController {
 		return ResponseEntity.ok(ApiResponse.success(response));
 	}
 
+	@PostMapping("/resend-otp")
+	@PreAuthorize("hasRole('CUSTOMER')")
+	public ResponseEntity<ApiResponse<OtpResponse>> resendOtp(
+			@Valid @RequestBody BookingOtpRequest request,
+			Authentication authentication) {
+		requireUserId(authentication);
+		otpService.findPendingOtp(request.getPhone(), REFERENCE_TYPE_BOOKING)
+				.ifPresent(otp -> otpService.invalidateOtp(otp.getId()));
+		OtpResponse response = otpService.generateOtp(request.getPhone(), REFERENCE_TYPE_BOOKING, null);
+		return ResponseEntity.ok(ApiResponse.success(response));
+	}
+
 	@GetMapping("/available-slots")
 	public ResponseEntity<ApiResponse<List<AvailableSlotResponse>>> availableSlots(
 			@RequestParam int branchId,
@@ -74,7 +86,7 @@ public class BookingController {
 	public ResponseEntity<ApiResponse<BookingResponse>> create(@Valid @RequestBody CreateBookingRequest request,
 			Authentication authentication) {
 		long userId = requireUserId(authentication);
-		BookingResponse created = bookingService.createBookingWithOtp(request, userId);
+		BookingResponse created = bookingService.createBooking(request, userId);
 		return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(created));
 	}
 
@@ -95,7 +107,7 @@ public class BookingController {
 		return ResponseEntity.ok(ApiResponse.success(page.getContent(), meta));
 	}
 
-	@GetMapping("/{id}")
+	@GetMapping("/{id:\\d+}")
 	@PreAuthorize("hasRole('CUSTOMER')")
 	public ResponseEntity<ApiResponse<BookingResponse>> myDetail(@PathVariable long id,
 			Authentication authentication) {

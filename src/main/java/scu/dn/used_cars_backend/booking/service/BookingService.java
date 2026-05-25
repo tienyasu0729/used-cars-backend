@@ -35,6 +35,7 @@ import scu.dn.used_cars_backend.repository.DepositRepository;
 import scu.dn.used_cars_backend.repository.UserRepository;
 import scu.dn.used_cars_backend.repository.VehicleRepository;
 import scu.dn.used_cars_backend.service.InAppNotificationService;
+import scu.dn.used_cars_backend.service.ProfileCompletionSupport;
 import scu.dn.used_cars_backend.service.ShowroomCustomerService;
 import scu.dn.used_cars_backend.service.StaffService;
 import scu.dn.used_cars_backend.sms.dto.OtpVerifyResult;
@@ -74,6 +75,7 @@ public class BookingService {
 
 	@Transactional(rollbackFor = Exception.class)
 	public BookingResponse createBooking(CreateBookingRequest request, long customerId) {
+		assertCustomerProfileComplete(customerId);
 		LocalDate bookingDate = parseDate(request.getBookingDate());
 		LocalTime timeSlot = parseTime(request.getTimeSlot());
 		return createBookingInternal(
@@ -92,6 +94,7 @@ public class BookingService {
 
 	@Transactional(rollbackFor = Exception.class)
 	public BookingResponse createBookingWithOtp(CreateBookingRequest request, long customerId) {
+		assertCustomerProfileComplete(customerId);
 		OtpVerifyResult otpResult = otpService.verifyOtp(
 				request.getPhone(),
 				request.getOtpCode(),
@@ -572,6 +575,12 @@ public class BookingService {
 				.note(h.getNote())
 				.changedAt(h.getChangedAt())
 				.build();
+	}
+
+	private void assertCustomerProfileComplete(long customerId) {
+		User customer = userRepository.findByIdAndDeletedFalse(customerId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "Không tìm thấy người dùng."));
+		ProfileCompletionSupport.assertCustomerProfileComplete(customer);
 	}
 
 	private static String normalizeStatusFilter(String status) {

@@ -51,6 +51,7 @@ public class UserService {
 		user.setAddress(request.address());
 		user.setDateOfBirth(request.dateOfBirth());
 		user.setGender(request.gender());
+		ProfileCompletionSupport.refreshProfileCompletionFlag(user);
 		userRepository.save(user);
 	}
 
@@ -72,7 +73,10 @@ public class UserService {
 				.dateOfBirth(user.getDateOfBirth())
 				.gender(user.getGender())
 				.role(roleName)
-				.passwordChangeRequired(Boolean.TRUE.equals(user.getPasswordChangeRequired()));
+				.passwordChangeRequired(Boolean.TRUE.equals(user.getPasswordChangeRequired()))
+				.hasPassword(hasPasswordSet(user))
+				.googleLinked(isGoogleLinked(user))
+				.profileCompletionRequired(Boolean.TRUE.equals(user.getProfileCompletionRequired()));
 		resolveProfileBranchId(user.getId(), roleName).ifPresent(b::branchId);
 		return b.build();
 	}
@@ -135,6 +139,16 @@ public class UserService {
 			throw new BusinessException(ErrorCode.ACCOUNT_SUSPENDED, "Tài khoản bị khóa.");
 		}
 		return user;
+	}
+
+	/** User đã đặt mật khẩu (kể cả tài khoản Google đặt MK qua quên mật khẩu). */
+	private static boolean hasPasswordSet(User user) {
+		return user.getPasswordHash() != null && !user.getPasswordHash().isBlank();
+	}
+
+	/** Tài khoản đã liên kết Google OAuth (có sub trong providerId). */
+	private static boolean isGoogleLinked(User user) {
+		return user.getProviderId() != null && !user.getProviderId().isBlank();
 	}
 
 }

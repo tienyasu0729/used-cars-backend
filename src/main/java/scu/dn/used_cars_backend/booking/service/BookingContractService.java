@@ -28,6 +28,7 @@ import scu.dn.used_cars_backend.service.CloudinaryUploadService;
 import scu.dn.used_cars_backend.service.EmailNotificationService;
 import scu.dn.used_cars_backend.service.MediaUploadContext;
 import scu.dn.used_cars_backend.service.StaffService;
+import scu.dn.used_cars_backend.sms.service.OtpService;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -50,6 +51,7 @@ public class BookingContractService {
 	private final EmailNotificationService emailNotificationService;
 	private final AuditLogWriter auditLogWriter;
 	private final StaffService staffService;
+	private final OtpService otpService;
 
 	@Transactional(readOnly = true)
 	public ContractPreviewResponse getContractPreview(long bookingId, long customerId) {
@@ -130,6 +132,8 @@ public class BookingContractService {
 		}
 
 		validateSignatureUrls(req, bookingId);
+
+		otpService.verifyOtp(req.getPhone(), req.getOtpCode(), "booking", null);
 
 		User customer = userRepository.findById(b.getCustomerId()).orElse(null);
 		ActiveContractTermsDto terms = contractTermsService.getActiveTerms();

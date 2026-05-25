@@ -680,12 +680,21 @@ public class InstallmentService {
 	}
 
 	@Transactional
-	public void cancelApplication(Long userId, Long applicationId) {
+	public void cancelApplication(Long userId, String role, Long applicationId) {
 		InstallmentApplication app = applicationRepository.findById(applicationId)
 				.orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Khong tim thay ho so."));
-		if (app.getStatus() == InstallmentApplication.Status.COMPLETED
-				|| app.getStatus() == InstallmentApplication.Status.CANCELLED) {
-			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Khong the huy ho so o trang thai " + app.getStatus().name());
+		if (isInstallmentStaffRole(role)) {
+			if (app.getStatus() == InstallmentApplication.Status.COMPLETED
+					|| app.getStatus() == InstallmentApplication.Status.CANCELLED) {
+				throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Khong the huy ho so o trang thai " + app.getStatus().name());
+			}
+		} else {
+			if (!app.getCustomer().getId().equals(userId)) {
+				throw new BusinessException(ErrorCode.FORBIDDEN, "Ban khong co quyen huy ho so nay.");
+			}
+			if (app.getStatus() != InstallmentApplication.Status.DRAFT) {
+				throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Khong the huy ho so o trang thai " + app.getStatus().name());
+			}
 		}
 		InstallmentApplication.Status oldStatus = app.getStatus();
 		app.setStatus(InstallmentApplication.Status.CANCELLED);
@@ -1032,6 +1041,12 @@ public class InstallmentService {
 		} catch (Exception e) {
 			log.error("Loi gui thong bao cap nhat tham dinh cho ho so #{}: {}", app.getId(), e.getMessage());
 		}
+	}
+
+	private boolean isInstallmentStaffRole(String role) {
+		return "ADMIN".equals(role)
+				|| "SALESSTAFF".equalsIgnoreCase(role)
+				|| "BRANCHMANAGER".equalsIgnoreCase(role);
 	}
 
 	private String resolveInstallmentInboxLinkForRecipient(User recipient) {

@@ -75,6 +75,18 @@ public interface InstallmentApplicationRepository extends JpaRepository<Installm
 			""")
 	Optional<InstallmentApplication> findByIdWithVehicleAndDocuments(@Param("id") Long id);
 
+	@Query("""
+			select distinct ia
+			from InstallmentApplication ia
+			left join fetch ia.customer
+			left join fetch ia.vehicle v
+			left join fetch v.branch b
+			left join fetch b.manager
+			left join fetch ia.documents
+			where ia.id = :id
+			""")
+	Optional<InstallmentApplication> findByIdWithVehicleBranchAndDocuments(@Param("id") Long id);
+
 	List<InstallmentApplication> findTop100ByStatusAndBankLoanIdIsNotNullOrderByUpdatedAtAsc(
 			InstallmentApplication.Status status);
 

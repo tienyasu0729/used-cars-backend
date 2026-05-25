@@ -252,7 +252,8 @@ public class InstallmentController {
 	public ResponseEntity<ApiResponse<Void>> cancelApplication(
 			@PathVariable Long id, Authentication auth) {
 		long uid = AuthenticationDetailsUtils.requireUserId(auth);
-		installmentService.cancelApplication(uid, id);
+		String role = JwtRoleNames.primaryRole(auth);
+		installmentService.cancelApplication(uid, role, id);
 		return ResponseEntity.ok(ApiResponse.success(null));
 	}
 
@@ -264,8 +265,18 @@ public class InstallmentController {
 		byte[] pdf = loanContractService.generateContractPdf(id);
 		return ResponseEntity.ok()
 				.header("Content-Type", "application/pdf")
-				.header("Content-Disposition", "attachment; filename=loan_contract_" + id + ".pdf")
+				.header("Content-Disposition", "attachment; filename=hop-dong-tra-gop-" + id + ".pdf")
 				.body(pdf);
+	}
+
+	@GetMapping("/{id}/export/contract-docx")
+	@PreAuthorize("hasAnyRole('ADMIN', 'SALESSTAFF', 'BRANCHMANAGER')")
+	public ResponseEntity<byte[]> exportContractDocx(@PathVariable Long id) {
+		byte[] docx = loanContractService.generateContractDocx(id);
+		return ResponseEntity.ok()
+				.header("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+				.header("Content-Disposition", "attachment; filename=hop-dong-tra-gop-" + id + ".docx")
+				.body(docx);
 	}
 
 	@GetMapping("/{id}/export/identity-docs")

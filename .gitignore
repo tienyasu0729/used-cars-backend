@@ -48,6 +48,11 @@ extracted_functions.txt
 
 # Cloudinary / secret cục bộ — không commit
 src/main/resources/application.yml
+
+# Docker env — local/filled copies only; commit example template
+docker/.env*
+!docker/.env.backend.example
+
 src/main/resources/db
 !src/main/resources/db/
 !src/main/resources/db/migration/

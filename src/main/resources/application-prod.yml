@@ -1,260 +1,160 @@
-
 spring:
+  application:
+    name: used-cars-backend
 
   servlet:
-
     multipart:
-
       max-file-size: 10MB
-
       max-request-size: 12MB
 
-
-
   datasource:
-
     driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
-
-    url: jdbc:sqlserver://localhost:1433;databaseName=usedCars;encrypt=false;trustServerCertificate=true;sendTimeAsDatetime=false
-
-    username: sa
-
-    password: "Sa@2026Strong!"
-
-
+    url: jdbc:sqlserver://${DB_HOST:localhost}:${DB_PORT:1433};databaseName=${DB_NAME:usedCars};encrypt=${DB_ENCRYPT:false};trustServerCertificate=${DB_TRUST_SERVER_CERTIFICATE:true};sendTimeAsDatetime=false
+    username: ${DB_USERNAME:sa}
+    password: ${DB_PASSWORD:}
 
   jpa:
-
     hibernate:
-
       ddl-auto: validate
-
       naming:
-
         physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
-
     open-in-view: false
-
     properties:
-
       hibernate.type.preferred_instant_jdbc_type: TIMESTAMP
-
       hibernate:
-
         dialect: org.hibernate.dialect.SQLServerDialect
-
         format_sql: false
 
-
-
   data:
-
     redis:
-
-      host: localhost
-
-      port: 6379
-
-      timeout: 2000ms
-
-
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: ${REDIS_TIMEOUT:2000ms}
 
   flyway:
-
-    enabled: true
-
+    enabled: ${FLYWAY_ENABLED:true}
     locations: classpath:db/migration
-
     baseline-on-migrate: true
-
-    baseline-version: 6
-
+    baseline-version: ${FLYWAY_BASELINE_VERSION:6}
     ignore-missing-migrations: true
 
-
-
   mail:
-
-    host: smtp.gmail.com
-
-    port: 587
-
-    username: "otocudanang123@gmail.com"
-
-    password: "hjnksliewebuvied"
-
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
     properties:
-
       mail:
-
         smtp:
-
           auth: true
-
           starttls:
-
             enable: true
-
             required: true
-
           ssl:
-
-            trust: smtp.gmail.com
-
-            protocols: TLSv1.2
-
-
+            trust: ${MAIL_SSL_TRUST:smtp.gmail.com}
+            protocols: ${MAIL_SSL_PROTOCOLS:TLSv1.2}
 
 server:
-
-  port: 8080
-
-
+  port: ${SERVER_PORT:8080}
 
 logging:
-
   level:
-
-    scu.dn.used_cars_backend.service.payment: INFO
-
-    scu.dn.used_cars_backend.sms.service.OtpService: WARN
-
-    scu.dn.used_cars_backend.sms.service.SmsService: WARN
-
-
+    scu.dn.used_cars_backend.service.payment: ${PAYMENT_LOG_LEVEL:INFO}
+    scu.dn.used_cars_backend.sms.service.OtpService: ${OTP_LOG_LEVEL:WARN}
+    scu.dn.used_cars_backend.sms.service.SmsService: ${SMS_LOG_LEVEL:WARN}
 
 app:
-
-  timezone: Asia/Saigon
-
-
+  timezone: ${APP_TIMEZONE:Asia/Saigon}
 
   security:
-
     cors:
-
       allowed-origin-patterns:
-
-        - "https://otocudanang.store"
-
-        - "https://www.otocudanang.store"
-
+        - ${CORS_ALLOWED_ORIGIN_1:https://otocudanang.store}
+        - ${CORS_ALLOWED_ORIGIN_2:https://www.otocudanang.store}
     rate-limit:
-
-      enabled: true
-
-      requests-per-minute: 60
-
+      enabled: ${RATE_LIMIT_ENABLED:true}
+      requests-per-minute: ${RATE_LIMIT_REQUESTS_PER_MINUTE:60}
     webhook:
-
       vnpay-allow-cidrs: []
-
       zalopay-allow-cidrs: []
 
-
-
   mail:
-
-    from: "otocudanang123@gmail.com"
-
-
+    from: ${MAIL_FROM:}
 
   jwt:
-
-    secret: "ProdSecretKey_MustBe256BitsLong_OtoCuDaNang_2026_SecureRandom!!"
-
-    expiration-ms: 86400000
-
-
+    secret: ${APP_JWT_SECRET:}
+    expiration-ms: ${APP_JWT_EXPIRATION_MS:86400000}
 
   google:
-
-    client-id: "295380430968-io62k6mffrmk3avcuf1l0r4c9o46fvpe.apps.googleusercontent.com"
-
-
+    client-id: ${GOOGLE_CLIENT_ID:}
 
   cloudinary:
-
-    cloud-name: "degmf4c2i"
-
-    api-key: "551714331666619"
-
-    api-secret: "uypi0SiN8m12oY-TMOh6yDJPIGM"
-
-
+    cloud-name: ${CLOUDINARY_CLOUD_NAME:}
+    api-key: ${CLOUDINARY_API_KEY:}
+    api-secret: ${CLOUDINARY_API_SECRET:}
 
   cloudinary-docs:
+    cloud-name: ${CLOUDINARY_DOCS_CLOUD_NAME:}
+    api-key: ${CLOUDINARY_DOCS_API_KEY:}
+    api-secret: ${CLOUDINARY_DOCS_API_SECRET:}
 
-    cloud-name: "dr1icb3pe"
-
-    api-key: "767919882347391"
-
-    api-secret: "Kcyqq0mrG8mMoRgLp-3XFZubv7E"
-
+  credit-service:
+    url: ${CREDIT_SERVICE_URL:https://credit-service-n2s5.onrender.com/api/loan/apply}
+    status-endpoint: ${CREDIT_SERVICE_STATUS_ENDPOINT:https://credit-service-n2s5.onrender.com/api/loan/status}
+    api-key: ${CREDIT_SERVICE_API_KEY:}
+    secret: ${CREDIT_SERVICE_SECRET:}
+    api-secret: ${CREDIT_SERVICE_API_SECRET:}
+    timeout-ms: ${CREDIT_SERVICE_TIMEOUT_MS:10000}
+    connect-timeout-ms: ${CREDIT_SERVICE_CONNECT_TIMEOUT_MS:3000}
+    retry:
+      fixed-delay-ms: ${CREDIT_SERVICE_RETRY_FIXED_DELAY_MS:15000}
+      base-delay-ms: ${CREDIT_SERVICE_RETRY_BASE_DELAY_MS:5000}
+      max-delay-ms: ${CREDIT_SERVICE_RETRY_MAX_DELAY_MS:900000}
+      batch-size: ${CREDIT_SERVICE_RETRY_BATCH_SIZE:20}
 
   order:
-
-    pending-timeout-hours: 24
-
-
+    pending-timeout-hours: ${ORDER_PENDING_TIMEOUT_HOURS:24}
 
   installment:
-
-    pre-deposit-percent: 10
-
-
+    pre-deposit-percent: ${INSTALLMENT_PRE_DEPOSIT_PERCENT:10}
+    contract:
+      payment-day-of-month: ${INSTALLMENT_CONTRACT_PAYMENT_DAY_OF_MONTH:15}
+      late-fee-rate-percent: ${INSTALLMENT_CONTRACT_LATE_FEE_RATE_PERCENT:1,5%/tháng}
+      seller:
+        company-name: ${INSTALLMENT_CONTRACT_SELLER_COMPANY_NAME:CÔNG TY SCUDN}
+        tax-code: ${INSTALLMENT_CONTRACT_SELLER_TAX_CODE:}
+        address: ${INSTALLMENT_CONTRACT_SELLER_ADDRESS:}
+        representative: ${INSTALLMENT_CONTRACT_SELLER_REPRESENTATIVE:}
 
   payment:
-
-    frontend-base-url: "https://otocudanang.store"
-
+    frontend-base-url: ${PAYMENT_FRONTEND_BASE_URL:https://otocudanang.store}
     vnpay:
-
-      enabled: true
-
-      tmn-code: "5KGHVO2Q"
-
-      hash-secret: "W1CUPHXNCA09SNZXIZ7EBG9BXP5N7DE7"
-
-      pay-url: "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html"
-
-      return-url: "https://api.otocudanang.store/api/v1/payment/vnpay/return"
-
-      ipn-url: "https://api.otocudanang.store/api/v1/payment/vnpay/ipn"
-
+      enabled: ${VNPAY_ENABLED:true}
+      tmn-code: ${VNPAY_TMN_CODE:}
+      hash-secret: ${VNPAY_HASH_SECRET:}
+      pay-url: ${VNPAY_PAY_URL:https://sandbox.vnpayment.vn/paymentv2/vpcpay.html}
+      return-url: ${VNPAY_RETURN_URL:https://api.otocudanang.store/api/v1/payment/vnpay/return}
+      ipn-url: ${VNPAY_IPN_URL:https://api.otocudanang.store/api/v1/payment/vnpay/ipn}
+      merchant-api-url: ${VNPAY_MERCHANT_API_URL:}
+      customer-ip-fallback: ${VNPAY_CUSTOMER_IP_FALLBACK:}
+      order-type: ${VNPAY_ORDER_TYPE:}
+      hmac-algorithm: ${VNPAY_HMAC_ALGORITHM:}
     zalopay:
-
-      enabled: true
-
-      app-id: "2553"
-
-      key1: "PcY4iZIKFCIdgZvA6ueMcMHHUbRLYjPL"
-
-      key2: "kLtgPl8HHhfvMuDHPwKfgfsY4Ydm9eIz"
-
-      endpoint: "https://sb-openapi.zalopay.vn/v2/create"
-
-      callback-url: "https://api.otocudanang.store/api/v1/payment/zalopay/callback"
-
-
+      enabled: ${ZALOPAY_ENABLED:true}
+      app-id: ${ZALOPAY_APP_ID:}
+      key1: ${ZALOPAY_KEY1:}
+      key2: ${ZALOPAY_KEY2:}
+      endpoint: ${ZALOPAY_ENDPOINT:https://sb-openapi.zalopay.vn/v2/create}
+      callback-url: ${ZALOPAY_CALLBACK_URL:https://api.otocudanang.store/api/v1/payment/zalopay/callback}
 
   pricing:
-
-    enabled: true
-
-    base-url: "http://localhost:8000"
-
-    estimate-path: "/internal/vehicle-pricing/estimate"
-
-    internal-token: "pricing_internal_prod_token_2026"
-
-    connect-timeout-ms: 15000
-
-    read-timeout-ms: 600000
+    enabled: ${PRICING_ENABLED:true}
+    base-url: ${PRICING_BASE_URL:http://localhost:8000}
+    estimate-path: ${PRICING_ESTIMATE_PATH:/internal/vehicle-pricing/estimate}
+    internal-token: ${PRICING_INTERNAL_TOKEN:}
+    connect-timeout-ms: ${PRICING_CONNECT_TIMEOUT_MS:15000}
+    read-timeout-ms: ${PRICING_READ_TIMEOUT_MS:600000}
 
   sms:
-
-    enabled: true
-
-    require-https: true
-
+    enabled: ${SMS_ENABLED:true}
+    require-https: ${SMS_REQUIRE_HTTPS:true}

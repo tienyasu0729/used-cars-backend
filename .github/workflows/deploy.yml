@@ -1,35 +1,30 @@
-
 name: Deploy Backend
 
 on:
-
   push:
-
     branches: [main]
 
 jobs:
-
   deploy:
-
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     steps:
+      - name: Setup SSH
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ secrets.PORT }}" "${{ secrets.HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      - uses: appleboy/ssh-action@v1.0.3
-
-        with:
-
-          host: ${{ secrets.HOST }}
-
-          username: ${{ secrets.USERNAME }}
-
-          key: ${{ secrets.SSH_KEY }}
-
-          port: ${{ secrets.PORT }}
-
-          command_timeout: 20m
-
-          script: |
-
-            cd /opt/backend/app && git reset --hard && git pull origin main && chmod +x mvnw && ./mvnw clean package -Dmaven.test.skip=true && systemctl restart used-cars-backend
-
+      - name: Deploy
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            -p "${{ secrets.PORT }}" \
+            -o StrictHostKeyChecking=accept-new \
+            -o ServerAliveInterval=60 \
+            -o ServerAliveCountMax=20 \
+            "${{ secrets.USERNAME }}@${{ secrets.HOST }}" \
+            'cd /opt/backend/app && git reset --hard && git pull origin main && chmod +x mvnw && ./mvnw clean package -Dmaven.test.skip=true && systemctl restart used-cars-backend'

@@ -18,9 +18,14 @@ import scu.dn.used_cars_backend.repository.SalesOrderRepository;
 import scu.dn.used_cars_backend.repository.StaffAssignmentRepository;
 import scu.dn.used_cars_backend.repository.UserRepository;
 import scu.dn.used_cars_backend.interaction.repository.SavedVehicleRepository;
+import scu.dn.used_cars_backend.sms.entity.OtpVerification;
+import scu.dn.used_cars_backend.sms.repository.OtpVerificationRepository;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 // Hồ sơ người dùng: cập nhật tên/SĐT, avatar, thống kê dashboard khách.
@@ -29,8 +34,11 @@ import java.util.Optional;
 public class UserService {
 
 	private static final String CUSTOMER_ROLE = "Customer";
+	private static final String PROFILE_OTP_REFERENCE = "profile";
+	private static final long PROFILE_OTP_VERIFIED_MAX_AGE_MINUTES = 15;
 
 	private final UserRepository userRepository;
+	private final OtpVerificationRepository otpVerificationRepository;
 	private final StaffAssignmentRepository staffAssignmentRepository;
 	private final BranchRepository branchRepository;
 	private final SavedVehicleRepository savedVehicleRepository;
@@ -44,6 +52,9 @@ public class UserService {
 		User user = loadActiveUser(userId);
 		if (userRepository.existsByPhoneIgnoreCaseAndDeletedFalseAndIdNot(request.phone(), userId)) {
 			throw new BusinessException(ErrorCode.STAFF_PHONE_EXISTS, "Số điện thoại đã được sử dụng.");
+		}
+		if (isPhoneChanged(user.getPhone(), request.phone())) {
+			assertProfilePhoneOtp(userId, request.otpVerificationId(), request.phone());
 		}
 		// Đã strip + chuẩn hoá SĐT + validate trong UpdateProfileRequest (Bean Validation)
 		user.setName(request.name());
@@ -130,6 +141,40 @@ public class UserService {
 				.activeDeposits(activeDeposits)
 				.totalOrders(totalOrders)
 				.build();
+	}
+
+	private static boolean isPhoneChanged(String currentPhone, String newPhone) {
+		String current = currentPhone == null ? "" : currentPhone.trim();
+		String next = newPhone == null ? "" : newPhone.trim();
+		return !current.equalsIgnoreCase(next);
+	}
+
+	private void assertProfilePhoneOtp(long userId, Long otpVerificationId, String newPhone) {
+		if (otpVerificationId == null) {
+			throw new BusinessException(ErrorCode.OTP_REFERENCE_INVALID,
+					"Cần xác thực OTP trước khi đổi số điện thoại.");
+		}
+		OtpVerification otp = otpVerificationRepository.findById(otpVerificationId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.OTP_REFERENCE_INVALID,
+						"Mã xác thực OTP không hợp lệ."));
+		if (!PROFILE_OTP_REFERENCE.equals(otp.getReferenceType())) {
+			throw new BusinessException(ErrorCode.OTP_REFERENCE_INVALID, "Mã OTP không thuộc cập nhật hồ sơ.");
+		}
+		if (!OtpVerification.STATUS_VERIFIED.equals(otp.getStatus())) {
+			throw new BusinessException(ErrorCode.OTP_REFERENCE_INVALID,
+					"Mã OTP chưa được xác thực. Vui lòng xác thực lại.");
+		}
+		if (otp.getVerifiedAt() == null
+				|| otp.getVerifiedAt().isBefore(Instant.now().minus(Duration.ofMinutes(PROFILE_OTP_VERIFIED_MAX_AGE_MINUTES)))) {
+			throw new BusinessException(ErrorCode.OTP_EXPIRED, "Mã OTP đã hết hạn. Vui lòng yêu cầu mã mới.");
+		}
+		if (otp.getReferenceId() != null && !Objects.equals(otp.getReferenceId(), userId)) {
+			throw new BusinessException(ErrorCode.OTP_REFERENCE_INVALID, "Mã OTP không khớp với tài khoản.");
+		}
+		if (otp.getPhone() != null && newPhone != null && !newPhone.equals(otp.getPhone().trim())) {
+			throw new BusinessException(ErrorCode.OTP_REFERENCE_INVALID,
+					"Số điện thoại xác thực OTP không khớp với hồ sơ.");
+		}
 	}
 
 	private User loadActiveUser(long userId) {

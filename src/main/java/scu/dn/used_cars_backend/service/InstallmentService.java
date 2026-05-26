@@ -918,10 +918,8 @@ public class InstallmentService {
 			} else if (!isPaidDeposit(preDeposit)) {
 				canSubmit = false;
 				blockingReason = "PRE_DEPOSIT_PAYMENT_REQUIRED";
-			} else if (!depositProofUploaded) {
-				canSubmit = false;
-				blockingReason = "DEPOSIT_PROOF_REQUIRED";
 			} else {
+				// Deposit receipt (DEPOSIT_RECEIPT) is optional — payment confirmation is enough.
 				canSubmit = true;
 			}
 		}

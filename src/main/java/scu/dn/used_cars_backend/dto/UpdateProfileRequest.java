@@ -35,7 +35,9 @@ public record UpdateProfileRequest(
 		@Pattern(
 				regexp = "^(|male|female|other)$",
 				message = "Giới tính phải là male, female hoặc other (hoặc để trống).")
-		String gender) {
+		String gender,
+		/** Bắt buộc khi đổi SĐT — trả về từ POST /users/me/phone/verify-otp */
+		Long otpVerificationId) {
 
 	public UpdateProfileRequest {
 		name = name == null ? "" : name.strip();

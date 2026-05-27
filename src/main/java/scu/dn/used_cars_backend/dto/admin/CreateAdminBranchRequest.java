@@ -1,5 +1,9 @@
 package scu.dn.used_cars_backend.dto.admin;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
+
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
@@ -19,4 +23,11 @@ public class CreateAdminBranchRequest {
 	private String phone;
 
 	private Long managerId;
+
+	@Size(max = 15, message = "Tối đa 15 ảnh showroom.")
+	private List<@Size(max = 2048, message = "Mỗi URL tối đa 2048 ký tự.") String> showroomImageUrls = new ArrayList<>();
+
+	/** Tọa độ GPS (nullable — tùy chọn). */
+	private BigDecimal lat;
+	private BigDecimal lng;
 }

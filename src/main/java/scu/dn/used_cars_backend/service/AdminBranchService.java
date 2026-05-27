@@ -19,6 +19,7 @@ import scu.dn.used_cars_backend.repository.BranchRepository;
 import scu.dn.used_cars_backend.repository.StaffAssignmentRepository;
 import scu.dn.used_cars_backend.repository.UserRepository;
 import scu.dn.used_cars_backend.repository.VehicleRepository;
+import scu.dn.used_cars_backend.service.VehicleService;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -32,6 +33,7 @@ public class AdminBranchService {
 
 	private final BranchRepository branchRepository;
 	private final VehicleRepository vehicleRepository;
+	private final VehicleService vehicleService;
 	private final StaffAssignmentRepository staffAssignmentRepository;
 	private final UserRepository userRepository;
 	private final ObjectMapper objectMapper;
@@ -77,6 +79,16 @@ public class AdminBranchService {
 					.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "Không tìm thấy quản lý."));
 			b.setManager(m);
 		}
+		if (req.getShowroomImageUrls() != null && !req.getShowroomImageUrls().isEmpty()) {
+			List<String> urls = req.getShowroomImageUrls().stream()
+					.filter(s -> s != null && !s.isBlank())
+					.map(String::trim)
+					.limit(15)
+					.toList();
+			writeShowroomImageUrls(b, urls);
+		}
+		if (req.getLat() != null) b.setLat(req.getLat());
+		if (req.getLng() != null) b.setLng(req.getLng());
 		Branch saved = branchRepository.save(b);
 		return toDto(saved);
 	}
@@ -85,6 +97,7 @@ public class AdminBranchService {
 	public AdminBranchListItemDto updateBranch(int branchId, UpdateAdminBranchRequest req) {
 		Branch b = branchRepository.findByIdAndDeletedFalse(branchId)
 				.orElseThrow(() -> new BusinessException(ErrorCode.BRANCH_NOT_FOUND, "Không tìm thấy chi nhánh."));
+		String previousStatus = b.getStatus() != null ? b.getStatus().trim().toLowerCase() : "active";
 		String st = req.getStatus().trim().toLowerCase();
 		if (!BRANCH_STATUSES.contains(st)) {
 			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Trạng thái chi nhánh không hợp lệ.");
@@ -96,6 +109,9 @@ public class AdminBranchService {
 		if (req.getLat() != null) b.setLat(req.getLat());
 		if (req.getLng() != null) b.setLng(req.getLng());
 		branchRepository.save(b);
+		if ("inactive".equals(st) && !"inactive".equals(previousStatus)) {
+			vehicleService.evictPublicCachesForBranch(branchId);
+		}
 		return toDto(b);
 	}
 
@@ -143,6 +159,18 @@ public class AdminBranchService {
 	private String firstShowroomImageUrl(String json) {
 		List<String> urls = readShowroomImageUrls(json);
 		return urls.isEmpty() ? null : urls.get(0);
+	}
+
+	private void writeShowroomImageUrls(Branch branch, List<String> urls) {
+		if (urls == null || urls.isEmpty()) {
+			branch.setShowroomImageUrlsJson(null);
+			return;
+		}
+		try {
+			branch.setShowroomImageUrlsJson(objectMapper.writeValueAsString(urls));
+		} catch (Exception e) {
+			throw new BusinessException(ErrorCode.VALIDATION_FAILED, "Không lưu được danh sách ảnh showroom.");
+		}
 	}
 
 	private static String trimOrNull(String s) {

@@ -10,6 +10,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import scu.dn.used_cars_backend.common.BranchPublicAccessSupport;
 import scu.dn.used_cars_backend.common.exception.BusinessException;
 import scu.dn.used_cars_backend.common.exception.ErrorCode;
 import scu.dn.used_cars_backend.dto.sales.CancelDepositRequest;
@@ -87,6 +88,7 @@ public class DepositService {
 		if (v.isDeleted()) {
 			throw new BusinessException(ErrorCode.VEHICLE_NOT_AVAILABLE, "Xe đã bị ẩn khỏi hệ thống, không thể đặt cọc.");
 		}
+		BranchPublicAccessSupport.assertPubliclyAccessible(v.getBranch());
 		assertActorCanUseVehicle(actorUserId, jwtRole, v);
 		releaseStaleReservedVehicleIfNeeded(v);
 

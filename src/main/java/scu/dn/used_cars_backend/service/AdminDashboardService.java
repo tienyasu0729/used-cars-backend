@@ -8,6 +8,7 @@ import scu.dn.used_cars_backend.dto.admin.AdminDashboardCatalogSalesDto;
 import scu.dn.used_cars_backend.dto.admin.AdminDashboardStatsDto;
 import scu.dn.used_cars_backend.dto.admin.CatalogSalesBrandRowDto;
 import scu.dn.used_cars_backend.dto.admin.CatalogSalesModelRowDto;
+import scu.dn.used_cars_backend.entity.VehicleStatus;
 import scu.dn.used_cars_backend.repository.BranchRepository;
 import scu.dn.used_cars_backend.repository.SalesOrderRepository;
 import scu.dn.used_cars_backend.repository.UserRepository;
@@ -40,7 +41,7 @@ public class AdminDashboardService {
 		return AdminDashboardStatsDto.builder()
 				.totalRevenue(totalRevenue)
 				.totalVehiclesSold(vehicleRepository.countByDeletedFalseAndStatus("Sold"))
-				.totalInventory(vehicleRepository.countByDeletedFalse())
+				.totalInventory(vehicleRepository.countByDeletedFalseAndStatus(VehicleStatus.AVAILABLE.getDbValue()))
 				.newCustomers(newCustomers)
 				.activeBranches(branchRepository.countByDeletedFalse())
 				.build();

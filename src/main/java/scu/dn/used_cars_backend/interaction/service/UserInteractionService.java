@@ -8,6 +8,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import scu.dn.used_cars_backend.common.BranchPublicAccessSupport;
 import scu.dn.used_cars_backend.common.exception.BusinessException;
 import scu.dn.used_cars_backend.common.exception.ErrorCode;
 import scu.dn.used_cars_backend.entity.User;
@@ -98,6 +99,9 @@ public class UserInteractionService {
 		List<SavedVehicleResponse> out = new ArrayList<>();
 		for (SavedVehicle sv : rows) {
 			Vehicle v = sv.getVehicle();
+			if (!BranchPublicAccessSupport.isPubliclyAccessible(v.getBranch())) {
+				continue;
+			}
 			out.add(SavedVehicleResponse.builder()
 					.vehicleId(v.getId())
 					.listingId(v.getListingId())

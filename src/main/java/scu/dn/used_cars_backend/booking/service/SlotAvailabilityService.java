@@ -10,8 +10,10 @@ import scu.dn.used_cars_backend.booking.dto.AvailableSlotResponse;
 import scu.dn.used_cars_backend.booking.entity.BookingSlot;
 import scu.dn.used_cars_backend.booking.repository.BookingRepository;
 import scu.dn.used_cars_backend.booking.repository.BookingSlotRepository;
+import scu.dn.used_cars_backend.common.BranchPublicAccessSupport;
 import scu.dn.used_cars_backend.common.exception.BusinessException;
 import scu.dn.used_cars_backend.common.exception.ErrorCode;
+import scu.dn.used_cars_backend.entity.Branch;
 import scu.dn.used_cars_backend.entity.Vehicle;
 import scu.dn.used_cars_backend.repository.BranchRepository;
 import scu.dn.used_cars_backend.repository.VehicleRepository;
@@ -37,9 +39,9 @@ public class SlotAvailabilityService {
 
 	@Transactional(readOnly = true)
 	public List<AvailableSlotResponse> getAvailableSlots(int branchId, LocalDate date, Long vehicleId) {
-		if (branchRepository.findByIdAndDeletedFalse(branchId).isEmpty()) {
-			throw new BusinessException(ErrorCode.BRANCH_NOT_FOUND, "Không tìm thấy chi nhánh.");
-		}
+		Branch branch = branchRepository.findByIdAndDeletedFalse(branchId)
+				.orElseThrow(() -> new BusinessException(ErrorCode.BRANCH_NOT_FOUND, "Không tìm thấy chi nhánh."));
+		boolean branchTemporarilyClosed = !BranchPublicAccessSupport.isPubliclyAccessible(branch);
 		if (vehicleId != null) {
 			Vehicle v = vehicleRepository.findById(vehicleId)
 					.orElseThrow(() -> new BusinessException(ErrorCode.VEHICLE_NOT_FOUND, "Không tìm thấy xe."));
@@ -48,7 +50,7 @@ public class SlotAvailabilityService {
 			}
 		}
 		List<BookingSlot> templates = bookingSlotRepository.findByBranch_IdAndActiveTrueOrderBySlotTimeAsc(branchId);
-		boolean isClosedDay = openingHoursProvider.isBranchClosedOnDate(branchId, date);
+		boolean isClosedDay = branchTemporarilyClosed || openingHoursProvider.isBranchClosedOnDate(branchId, date);
 		return templates.stream()
 				.map(slot -> {
 					int max = slot.getMaxBookings() != null ? slot.getMaxBookings() : 0;

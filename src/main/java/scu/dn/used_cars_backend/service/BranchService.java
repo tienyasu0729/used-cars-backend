@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import scu.dn.used_cars_backend.common.BranchPublicAccessSupport;
 import scu.dn.used_cars_backend.common.exception.BusinessException;
 import scu.dn.used_cars_backend.common.exception.ErrorCode;
 import scu.dn.used_cars_backend.dto.branch.BranchPublicDto;
@@ -87,6 +88,7 @@ public class BranchService {
 	public BranchPublicDto getPublicById(int id) {
 		Branch b = branchRepository.findByIdAndDeletedFalse(id)
 				.orElseThrow(() -> new BusinessException(ErrorCode.BRANCH_NOT_FOUND, "Không tìm thấy chi nhánh."));
+		BranchPublicAccessSupport.assertPubliclyAccessible(b);
 		return toPublicDto(b);
 	}
 
@@ -97,6 +99,7 @@ public class BranchService {
 	public List<BranchTeamMemberDto> listPublicTeam(int branchId) {
 		Branch branch = branchRepository.findActiveByIdWithManager(branchId)
 				.orElseThrow(() -> new BusinessException(ErrorCode.BRANCH_NOT_FOUND, "Không tìm thấy chi nhánh."));
+		BranchPublicAccessSupport.assertPubliclyAccessible(branch);
 
 		List<BranchTeamMemberDto> out = new ArrayList<>();
 		Set<Long> seen = new HashSet<>();

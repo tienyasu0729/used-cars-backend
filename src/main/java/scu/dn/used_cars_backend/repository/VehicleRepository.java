@@ -39,6 +39,8 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 			and v.status <> 'Hidden'
 			and v.status <> 'Sold'
 			and v.status <> 'Reserved'
+			and v.branch.deleted = false
+			and lower(coalesce(v.branch.status, 'active')) = 'active'
 			and (:keyword is null
 			  or lower(v.title) like lower(concat('%', :keyword, '%'))
 			  or lower(v.category.name) like lower(concat('%', :keyword, '%'))
@@ -64,15 +66,42 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 			Pageable pageable);
 
 	@EntityGraph(attributePaths = { "category", "subcategory", "branch", "branch.manager", "images" })
-	@Query("select v from Vehicle v where v.id in :ids and v.deleted = false and v.status <> 'Hidden' and v.status <> 'Sold' and v.status <> 'Reserved'")
+	@Query("""
+			select v from Vehicle v
+			where v.id in :ids
+			and v.deleted = false
+			and v.status <> 'Hidden'
+			and v.status <> 'Sold'
+			and v.status <> 'Reserved'
+			and v.branch.deleted = false
+			and lower(coalesce(v.branch.status, 'active')) = 'active'
+			""")
 	List<Vehicle> findPublicByIds(@Param("ids") Collection<Long> ids);
 
 	@EntityGraph(attributePaths = { "category", "subcategory", "branch", "branch.manager", "images" })
-	@Query("select v from Vehicle v where v.id = :id and v.deleted = false and v.status <> 'Hidden' and v.status <> 'Sold' and v.status <> 'Reserved'")
+	@Query("""
+			select v from Vehicle v
+			where v.id = :id
+			and v.deleted = false
+			and v.status <> 'Hidden'
+			and v.status <> 'Sold'
+			and v.status <> 'Reserved'
+			and v.branch.deleted = false
+			and lower(coalesce(v.branch.status, 'active')) = 'active'
+			""")
 	Optional<Vehicle> findPublicDetailById(@Param("id") Long id);
 
 	@EntityGraph(attributePaths = { "category", "subcategory", "branch", "branch.manager", "images" })
-	@Query("select v from Vehicle v where v.listingId = :listingId and v.deleted = false and v.status <> 'Hidden' and v.status <> 'Sold' and v.status <> 'Reserved'")
+	@Query("""
+			select v from Vehicle v
+			where v.listingId = :listingId
+			and v.deleted = false
+			and v.status <> 'Hidden'
+			and v.status <> 'Sold'
+			and v.status <> 'Reserved'
+			and v.branch.deleted = false
+			and lower(coalesce(v.branch.status, 'active')) = 'active'
+			""")
 	Optional<Vehicle> findPublicDetailByListingId(@Param("listingId") String listingId);
 
 	@EntityGraph(attributePaths = { "category", "subcategory", "branch", "branch.manager", "images" })
@@ -117,8 +146,18 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 			@Param("excludeStatus") String excludeStatus,
 			Pageable pageable);
 
-	@Query("select v from Vehicle v where v.id = :id and v.deleted = false and v.status = :status")
+	@Query("""
+			select v from Vehicle v
+			where v.id = :id
+			and v.deleted = false
+			and v.status = :status
+			and v.branch.deleted = false
+			and lower(coalesce(v.branch.status, 'active')) = 'active'
+			""")
 	Optional<Vehicle> findAvailableForBooking(@Param("id") Long id, @Param("status") String status);
+
+	@Query("select v.id from Vehicle v where v.branch.id = :branchId and v.deleted = false")
+	List<Long> findIdsByBranchIdAndDeletedFalse(@Param("branchId") int branchId);
 
 	long countByBranch_IdAndDeletedFalse(int branchId);
 
@@ -208,6 +247,8 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 	@Query("""
 			select distinct v.title from Vehicle v
 			where v.deleted = false and v.status = 'Available'
+			and v.branch.deleted = false
+			and lower(coalesce(v.branch.status, 'active')) = 'active'
 			and lower(v.title) like lower(concat('%', :q, '%'))
 			order by v.title asc
 			""")
@@ -217,6 +258,8 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 	@Query("""
 			select distinct v.year from Vehicle v
 			where v.deleted = false and v.status = 'Available'
+			and v.branch.deleted = false
+			and lower(coalesce(v.branch.status, 'active')) = 'active'
 			and v.year is not null
 			order by v.year desc
 			""")
@@ -228,6 +271,8 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 			and v.status <> 'Hidden'
 			and v.status <> 'Sold'
 			and v.status <> 'Reserved'
+			and v.branch.deleted = false
+			and lower(coalesce(v.branch.status, 'active')) = 'active'
 			order by v.category.id asc
 			""")
 	List<Integer> findPublicCategoryIds();
@@ -238,6 +283,8 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 			and v.status <> 'Hidden'
 			and v.status <> 'Sold'
 			and v.status <> 'Reserved'
+			and v.branch.deleted = false
+			and lower(coalesce(v.branch.status, 'active')) = 'active'
 			order by v.category.id asc, v.subcategory.id asc
 			""")
 	List<Object[]> findPublicCategorySubcategoryPairs();
@@ -248,6 +295,8 @@ public interface VehicleRepository extends JpaRepository<Vehicle, Long> {
 			and v.status <> 'Hidden'
 			and v.status <> 'Sold'
 			and v.status <> 'Reserved'
+			and v.branch.deleted = false
+			and lower(coalesce(v.branch.status, 'active')) = 'active'
 			and v.price is not null
 			""")
 	Object[] findPublicPriceRange();

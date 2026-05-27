@@ -21,7 +21,7 @@ public class VehicleReadPortImpl implements VehicleReadPort {
 
 	@Override
 	public boolean existsForCustomerSave(long vehicleId) {
-		return vehicleRepository.existsByIdAndDeletedFalse(vehicleId);
+		return vehicleRepository.findPublicDetailById(vehicleId).isPresent();
 	}
 
 	@Override
@@ -29,7 +29,7 @@ public class VehicleReadPortImpl implements VehicleReadPort {
 		if (orderedIds == null || orderedIds.isEmpty()) {
 			return List.of();
 		}
-		List<Vehicle> loaded = vehicleRepository.findAllByIdInWithImages(new HashSet<>(orderedIds));
+		List<Vehicle> loaded = vehicleRepository.findPublicByIds(new HashSet<>(orderedIds));
 		Map<Long, Vehicle> byId = new HashMap<>();
 		for (Vehicle v : loaded) {
 			byId.put(v.getId(), v);

@@ -686,6 +686,23 @@ public class VehicleService {
 		evictVehicleCaches(vehicleId);
 	}
 
+	public void evictPublicCachesForBranch(int branchId) {
+		Cache list = cacheManager.getCache("vehicleList");
+		if (list != null) {
+			list.clear();
+		}
+		Cache facets = cacheManager.getCache("vehicleFacets");
+		if (facets != null) {
+			facets.clear();
+		}
+		Cache detail = cacheManager.getCache("vehicleDetail");
+		if (detail != null) {
+			for (Long id : vehicleRepository.findIdsByBranchIdAndDeletedFalse(branchId)) {
+				detail.evict(detailCacheKey(id));
+			}
+		}
+	}
+
 	private void evictVehicleCaches(Long vehicleId) {
 		Cache list = cacheManager.getCache("vehicleList");
 		if (list != null) {

@@ -67,7 +67,7 @@ public class BookingContractController {
 		long userId = requireUserId(auth);
 		byte[] pdf = contractService.generateContractPdf(bookingId, userId);
 		return ResponseEntity.ok()
-				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=contract_" + bookingId + ".pdf")
+				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=hop-dong-lai-thu-" + bookingId + ".pdf")
 				.contentType(MediaType.APPLICATION_PDF)
 				.body(pdf);
 	}

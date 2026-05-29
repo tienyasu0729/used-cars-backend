@@ -20,7 +20,7 @@ import java.util.List;
  * Template uses a 2-column table so each column has its own center axis (no page indent hacks).
  */
 @Slf4j
-final class InstallmentSignatureImageSupport {
+public final class InstallmentSignatureImageSupport {
 
 	static final String PLACEHOLDER_SIGNATURE_IMAGE = "{{BUYER_SIGNATURE_IMAGE}}";
 	static final String PLACEHOLDER_PRINTED_NAME = "{{BUYER_PRINTED_NAME}}";
@@ -28,7 +28,7 @@ final class InstallmentSignatureImageSupport {
 	private InstallmentSignatureImageSupport() {
 	}
 
-	static void embedBuyerSignatureBlock(XWPFDocument document, String signatureUrl, String buyerFullName) {
+	public static void embedBuyerSignatureBlock(XWPFDocument document, String signatureUrl, String buyerFullName) {
 		XWPFTableCell buyerCell = findBuyerSignatureCell(document);
 		if (buyerCell == null) {
 			log.warn("Buyer signature table cell not found in contract template");
@@ -97,7 +97,7 @@ final class InstallmentSignatureImageSupport {
 		}
 	}
 
-	static XWPFTableCell findBuyerSignatureCell(XWPFDocument document) {
+	public static XWPFTableCell findBuyerSignatureCell(XWPFDocument document) {
 		List<XWPFTable> tables = document.getTables();
 		for (int t = tables.size() - 1; t >= 0; t--) {
 			XWPFTable table = tables.get(t);

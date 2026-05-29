@@ -101,7 +101,7 @@ public class StaffBookingController {
 		long userId = AuthenticationDetailsUtils.requireUserId(authentication);
 		byte[] pdf = contractService.generateContractPdfForStaff(id, userId, isAdmin(authentication));
 		return ResponseEntity.ok()
-				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=contract_" + id + ".pdf")
+				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=hop-dong-lai-thu-" + id + ".pdf")
 				.contentType(MediaType.APPLICATION_PDF)
 				.body(pdf);
 	}

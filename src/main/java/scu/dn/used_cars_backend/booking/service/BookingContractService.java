@@ -1,10 +1,5 @@
 package scu.dn.used_cars_backend.booking.service;
 
-import com.lowagie.text.Document;
-import com.lowagie.text.Font;
-import com.lowagie.text.FontFactory;
-import com.lowagie.text.Paragraph;
-import com.lowagie.text.pdf.PdfWriter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -30,7 +25,6 @@ import scu.dn.used_cars_backend.service.MediaUploadContext;
 import scu.dn.used_cars_backend.service.StaffService;
 import scu.dn.used_cars_backend.sms.service.OtpService;
 
-import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
@@ -52,6 +46,7 @@ public class BookingContractService {
 	private final AuditLogWriter auditLogWriter;
 	private final StaffService staffService;
 	private final OtpService otpService;
+	private final BookingContractDocxService bookingContractDocxService;
 
 	@Transactional(readOnly = true)
 	public ContractPreviewResponse getContractPreview(long bookingId, long customerId) {
@@ -205,31 +200,10 @@ public class BookingContractService {
 		User customer = userRepository.findById(b.getCustomerId()).orElse(null);
 		String termsBody = contractTermsService.getTermsContentByVersionOrFallback(c.getTermsVersion());
 
-		try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-			Document doc = new Document();
-			PdfWriter.getInstance(doc, baos);
-			doc.open();
-
-			Font titleFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 16);
-			Font normalFont = FontFactory.getFont(FontFactory.HELVETICA, 11);
-			Font boldFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 11);
-
-			doc.add(new Paragraph("HOP DONG LAI THU XE (Phien ban: " + c.getTermsVersion() + ")", titleFont));
-			doc.add(new Paragraph(" "));
-			doc.add(new Paragraph("Khach hang: " + (customer != null ? customer.getName() : "N/A"), boldFont));
-			doc.add(new Paragraph("Dien thoai: " + (customer != null ? customer.getPhone() : "N/A"), normalFont));
-			doc.add(new Paragraph("Xe: " + b.getVehicle().getTitle(), normalFont));
-			doc.add(new Paragraph("Chi nhanh: " + b.getBranch().getName(), normalFont));
-			doc.add(new Paragraph("Ngay lai thu: " + b.getBookingDate() + " " + b.getTimeSlot(), normalFont));
-			doc.add(new Paragraph(" "));
-			doc.add(new Paragraph(termsBody, normalFont));
-			doc.add(new Paragraph(" "));
-			doc.add(new Paragraph("Loai chu ky: " + c.getSignatureType(), normalFont));
-			doc.add(new Paragraph("Hash noi dung: " + c.getContentSha256(), normalFont));
-			doc.add(new Paragraph("Thoi diem ky: " + c.getSignedAt(), normalFont));
-
-			doc.close();
-			return baos.toByteArray();
+		try {
+			return bookingContractDocxService.generateContractPdf(b, c, customer, termsBody);
+		} catch (BusinessException e) {
+			throw e;
 		} catch (Exception e) {
 			log.error("PDF generation failed for booking {}", bookingId, e);
 			throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "Không thể tạo file PDF.");
